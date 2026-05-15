@@ -1,5 +1,25 @@
 services:
-  a-stock-web:
+  mysql:
+    image: mysql:8.0
+    container_name: feifan-stock-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: feifan2024
+      MYSQL_DATABASE: feifan_stock
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
     build:
       context: .
       dockerfile: Dockerfile
@@ -9,13 +29,23 @@ services:
     environment:
       - FLASK_ENV=production
       - FLASK_DEBUG=0
+      - FEIFAN_DB_HOST=mysql
+      - FEIFAN_DB_PORT=3306
+      - FEIFAN_DB_USER=root
+      - FEIFAN_DB_PASSWORD=feifan2024
+      - FEIFAN_DB_NAME=feifan_stock
     volumes:
-      # 挂载缓存目录
       - ./cache:/app/cache
     restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+
+volumes:
+  mysql_data:

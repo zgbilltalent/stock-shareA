@@ -9,6 +9,11 @@ stockstats>=0.3.2
 flask>=3.0.0
 flask-cors>=4.0.0
 
+# Database dependencies
+pymysql>=1.1.0
+DBUtils>=3.0.0
+cryptography>=41.0.0
+
 # Development dependencies
 pytest>=7.0.0
 pytest-cov>=4.0.0
