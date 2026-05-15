@@ -1,5 +1,5 @@
 """
-a_stock_data - A股全栈数据工具包
+feifan_stock_data - A股全栈数据工具包
 
 六层数据架构，21 个端点。
 覆盖行情(mootdx+腾讯)、研报(东财+iwencai)、信号(同花顺热点+北向+百度PAE+龙虎榜+解禁+行业)、
@@ -7,7 +7,7 @@ a_stock_data - A股全栈数据工具包
 
 快速开始:
 
-    from a_stock_data import quotes, signals, valuation
+    from feifan_stock_data import quotes, signals, valuation
 
     # 拉取实时行情
     q = quotes.tencent_quote(["688017", "300476"])
@@ -20,7 +20,7 @@ a_stock_data - A股全栈数据工具包
 
 Web 服务:
 
-    from a_stock_data.web import run
+    from feifan_stock_data.web import run
     run()  # 启动 Web 服务，访问 http://localhost:5000
 """
 

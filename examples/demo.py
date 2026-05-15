@@ -1,10 +1,10 @@
 """
 使用示例脚本
 
-演示 a_stock_data 包的主要功能。
+演示 feifan_stock_data 包的主要功能。
 """
 
-from a_stock_data import quotes, signals, valuation
+from feifan_stock_data import quotes, signals, valuation
 
 
 def demo_quotes():

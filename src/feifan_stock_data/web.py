@@ -4,7 +4,7 @@ Web 应用入口 - A股全栈数据工具包
 提供 Web API 和可视化界面
 
 Usage:
-    python -m a_stock_data.web
+    python -m feifan_stock_data.web
 """
 
 import json

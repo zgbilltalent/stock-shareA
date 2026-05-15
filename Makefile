@@ -36,7 +36,7 @@ install-all:
 
 # 运行
 run:
-	python -m a_stock_data.web
+	python -m feifan_stock_data.web
 
 # 测试
 test:

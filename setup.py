@@ -1,5 +1,5 @@
 """
-Setup script for a_stock_data
+Setup script for feifan_stock_data
 
 This file is kept for backward compatibility.
 Modern projects should use pyproject.toml directly.

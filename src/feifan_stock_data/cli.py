@@ -4,9 +4,9 @@
 提供简单的 CLI 接口用于快速查询
 
 Usage:
-    python -m a_stock_data 688017
-    python -m a_stock_data --hot
-    python -m a_stock_data --industry
+    python -m feifan_stock_data 688017
+    python -m feifan_stock_data --hot
+    python -m feifan_stock_data --industry
 """
 
 import argparse

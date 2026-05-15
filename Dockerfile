@@ -41,7 +41,7 @@ USER 1000
 # Environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV FLASK_APP=a_stock_data.web
+ENV FLASK_APP=feifan_stock_data.web
 ENV FLASK_ENV=production
 
 # Expose port
@@ -52,4 +52,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5000/api/health || exit 1
 
 # Run
-CMD ["python", "-m", "a_stock_data.web"]
+CMD ["python", "-m", "feifan_stock_data.web"]

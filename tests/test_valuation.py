@@ -2,7 +2,7 @@
 
 import pytest
 
-from a_stock_data.valuation import calc_peg, forward_pe, pe_digestion
+from feifan_stock_data.valuation import calc_peg, forward_pe, pe_digestion
 
 
 class TestValuation:

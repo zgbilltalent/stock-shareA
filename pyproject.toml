@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "a-stock-data"
+name = "feifan-stock-data"
 version = "2.1.0"
 description = "A股全栈数据工具包 — 覆盖行情、研报、信号、新闻、基础数据、公告六层数据源"
 readme = "README.md"
@@ -47,10 +47,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/simonlin1212/a-stock-data"
-Documentation = "https://github.com/simonlin1212/a-stock-data#readme"
-Repository = "https://github.com/simonlin1212/a-stock-data"
-Issues = "https://github.com/simonlin1212/a-stock-data/issues"
+Homepage = "https://github.com/simonlin1212/feifan-stock-data"
+Documentation = "https://github.com/simonlin1212/feifan-stock-data#readme"
+Repository = "https://github.com/simonlin1212/feifan-stock-data"
+Issues = "https://github.com/simonlin1212/feifan-stock-data/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -13,7 +13,7 @@
 
 set -e
 
-PROJECT_NAME="a-stock-data"
+PROJECT_NAME="feifan-stock-data"
 VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
 
 echo "=========================================="
@@ -126,7 +126,7 @@ echo ""
 log_info "打包完成!"
 echo ""
 echo "下一步:"
-echo "  1. 运行服务:     pip install -e \".[web]\" && python -m a_stock_data.web"
+echo "  1. 运行服务:     pip install -e \".[web]\" && python -m feifan_stock_data.web"
 echo "  2. 或使用 Docker: docker-compose up -d"
 echo "  3. 访问:         http://localhost:5000"
 echo ""

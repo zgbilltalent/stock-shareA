@@ -1,8 +1,8 @@
-"""Tests for a_stock_data package."""
+"""Tests for feifan_stock_data package."""
 
 import pytest
 
-from a_stock_data.utils import (
+from feifan_stock_data.utils import (
     get_market,
     get_mootdx_market,
     get_prefix,
