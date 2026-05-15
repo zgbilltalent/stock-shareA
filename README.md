@@ -1,0 +1,2 @@
+# stock-shareA
+A share 
