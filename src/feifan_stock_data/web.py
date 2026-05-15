@@ -8,17 +8,22 @@ Usage:
 """
 
 import json
+import hashlib
+import secrets
 import traceback
 from pathlib import Path
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session, make_response
 from flask_cors import CORS
+from datetime import timedelta
 
 _HERE = Path(__file__).resolve().parent
 
 app = Flask(__name__,
             template_folder=str(_HERE / 'templates'),
             static_folder=str(_HERE / 'static'))
-CORS(app)
+CORS(app, supports_credentials=True)
+app.secret_key = secrets.token_hex(32)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
 from . import signals as sig
 from . import valuation as val
@@ -44,6 +49,27 @@ def _db_save(func, *args, **kwargs):
         app.logger.warning(f"DB save failed: {e}")
 
 
+def _log_search(keyword: str, search_type: str, result=None):
+    """记录搜索行为（仅记录股票搜索，跳过信号类）"""
+    if search_type == "signals":
+        return
+    try:
+        result_summary = None
+        if result is not None:
+            # 只存摘要，避免存大数据
+            if isinstance(result, dict):
+                result_summary = json.dumps(
+                    {k: v for k, v in result.items() if k in ("name", "price", "change_pct", "pe_ttm", "pb")},
+                    ensure_ascii=False,
+                ) if result else None
+            elif isinstance(result, list):
+                result_summary = json.dumps({"count": len(result)}, ensure_ascii=False)
+        ip = request.remote_addr if request else None
+        db.save_search(keyword, search_type, result_summary, ip)
+    except Exception as e:
+        app.logger.warning(f"Search log failed: {e}")
+
+
 # ==================== 行情 API ====================
 
 @app.route('/api/quote/<code>')
@@ -53,6 +79,7 @@ def api_quote(code):
         data = single_quote(code)
         data["code"] = code
         _db_save(db.save_quote, data)
+        _log_search(code, "quote", data)
         return format_response(data)
     except Exception as e:
         return format_response(None, False, str(e))
@@ -70,6 +97,59 @@ def api_quotes():
         return format_response(None, False, str(e))
 
 
+# ==================== K线 & 逐笔成交 API ====================
+
+@app.route('/api/kline/<code>')
+def api_kline(code):
+    """个股K线数据"""
+    try:
+        from .quotes import klines
+        category = request.args.get('category', 4, type=int)  # 4=日线
+        offset = request.args.get('offset', 120, type=int)
+        df = klines(code, category=category, offset=offset)
+        if df is None or df.empty:
+            return format_response([], True, "暂无K线数据")
+        # 统一字段名为前端友好的格式
+        df = df.rename(columns={
+            "open": "open", "close": "close", "high": "high", "low": "low",
+            "vol": "volume", "amount": "amount",
+        })
+        cols = ["open", "close", "high", "low", "volume", "amount"]
+        available = [c for c in cols if c in df.columns]
+        # 确保索引为日期字符串
+        if hasattr(df.index, "strftime"):
+            df["_datetime"] = df.index.strftime("%Y-%m-%d %H:%M")
+        else:
+            df["_datetime"] = df.index.astype(str)
+        result = df[["_datetime"] + available].to_dict("records")
+        return format_response(result)
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/transaction/<code>')
+def api_transaction(code):
+    """个股逐笔成交"""
+    try:
+        from .quotes import transaction
+        from datetime import datetime
+        date = request.args.get('date', '').strip()
+        if not date:
+            date = datetime.now().strftime("%Y%m%d")
+        df = transaction(code, date)
+        if df is None or df.empty:
+            return format_response([], True, "暂无成交数据（非交易时间或无数据）")
+        df = df.rename(columns={
+            "buyorsell": "direction",
+        })
+        cols = ["time", "price", "vol", "num", "direction"]
+        available = [c for c in cols if c in df.columns]
+        data = df[available].to_dict("records")
+        return format_response(data)
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
 # ==================== 估值 API ====================
 
 @app.route('/api/valuation/<code>')
@@ -78,6 +158,7 @@ def api_valuation(code):
     try:
         data = val.full_valuation(code)
         _db_save(db.save_valuation, code, data)
+        _log_search(code, "valuation", data)
         return format_response(data)
     except Exception as e:
         return format_response(None, False, str(e))
@@ -90,6 +171,7 @@ def api_valuation_summary(code):
         data = val.full_valuation(code)
         summary = val.valuation_summary(data)
         _db_save(db.save_valuation, code, data)
+        _log_search(code, "valuation", data)
         return format_response({"raw": data, "summary": summary})
     except Exception as e:
         return format_response(None, False, str(e))
@@ -109,6 +191,7 @@ def api_signals_hot():
         available_cols = [c for c in cols if c in df.columns]
         data = df[available_cols].head(limit).to_dict('records')
         _db_save(db.save_hot_stocks, df)
+        _log_search("强势股", "signals", data)
         return format_response(data, True, f"共 {len(df)} 只")
     except Exception as e:
         return format_response(None, False, str(e))
@@ -122,6 +205,7 @@ def api_signals_topics():
         topics = sig.hot_topics(limit)
         data = [{"topic": tag, "count": cnt} for tag, cnt in topics]
         _db_save(db.save_hot_topics, topics)
+        _log_search("热门题材", "signals", data)
         return format_response(data)
     except Exception as e:
         return format_response(None, False, str(e))
@@ -151,6 +235,7 @@ def api_signals_northbound():
         }
         data['signal_cn'] = signal_map.get(data.get("signal", ""), "未知")
         _db_save(db.save_northbound, data)
+        _log_search("北向资金", "signals", data)
         return format_response(data)
     except Exception as e:
         return format_response(None, False, str(e))
@@ -196,9 +281,23 @@ def api_research_stock(code):
     """个股研报"""
     try:
         from . import research
-        data = research.em_report(code)
-        _db_save(db.save_research, code, data if isinstance(data, list) else [data])
-        return format_response(data)
+        data = research.eastmoney_reports(code)
+        # 映射为统一字段
+        result = []
+        for r in (data or []):
+            result.append({
+                "title": r.get("title", ""),
+                "org": r.get("orgSName", ""),
+                "rating": r.get("emRatingName", ""),
+                "date": (r.get("publishDate", "") or "")[:10],
+                "infoCode": r.get("infoCode", ""),
+                "industry": r.get("indvInduName", ""),
+                "eps_this_year": r.get("predictThisYearEps"),
+                "eps_next_year": r.get("predictNextYearEps"),
+            })
+        _db_save(db.save_research, code, result)
+        _log_search(code, "research", result)
+        return format_response(result)
     except Exception as e:
         return format_response(None, False, str(e))
 
@@ -218,6 +317,7 @@ def api_news_market():
         available_cols = [c for c in cols if c in df.columns]
         data = df[available_cols].to_dict('records')
         _db_save(db.save_news, df)
+        _log_search("市场快讯", "signals", data)
         return format_response(data)
     except Exception as e:
         return format_response(None, False, str(e))
@@ -231,13 +331,21 @@ def api_disclosure(code):
     try:
         from . import disclosure
         limit = request.args.get('limit', 10, type=int)
-        df = disclosure.juchao_announcement(code, limit)
-        if df.empty:
+        df = disclosure.cninfo_disclosure(code)
+        if df is None or (hasattr(df, "empty") and df.empty):
             return format_response([], True, "暂无数据")
-        cols = ["公告标题", "公告时间", "pdf链接"]
+        # 映射为统一字段（akshare 返回中文名列）
+        col_map = {
+            "公告标题": "title", "公告类型": "type", "公告日期": "date",
+            "公告链接": "pdf_url", "公告时间": "date",
+        }
+        rename = {cn: en for cn, en in col_map.items() if cn in df.columns}
+        df = df.rename(columns=rename)
+        cols = ["title", "type", "date", "pdf_url"]
         available_cols = [c for c in cols if c in df.columns]
-        data = df[available_cols].to_dict('records')
+        data = df[available_cols].head(limit).to_dict('records')
         _db_save(db.save_announcement, code, df)
+        _log_search(code, "disclosure", data)
         return format_response(data)
     except Exception as e:
         return format_response(None, False, str(e))
@@ -256,6 +364,7 @@ def api_fundamental(code):
             "main_index": fundamental.main_index(code),
         }
         _db_save(db.save_fundamental, code, data)
+        _log_search(code, "fundamental", data)
         return format_response(data)
     except Exception as e:
         return format_response(None, False, str(e))
@@ -386,6 +495,325 @@ def api_history_fundamental():
         return format_response(data, True, f"共 {len(data)} 条")
     except Exception as e:
         return format_response(None, False, str(e))
+
+
+# ==================== 搜索历史 API ====================
+
+@app.route('/api/search/history')
+def api_search_history():
+    """查询搜索历史"""
+    try:
+        keyword = request.args.get('keyword')
+        search_type = request.args.get('type')
+        limit = request.args.get('limit', 50, type=int)
+        data = db.query_search_history(keyword, search_type, limit)
+        return format_response(data, True, f"共 {len(data)} 条")
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/search/recent')
+def api_search_recent():
+    """查询最近搜索（去重）"""
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        data = db.query_recent_searches(limit)
+        return format_response(data, True, f"共 {len(data)} 条")
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/search/stats')
+def api_search_stats():
+    """查询搜索统计"""
+    try:
+        data = db.query_search_stats()
+        return format_response(data, True, f"共 {len(data)} 条")
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/search/delete', methods=['POST'])
+def api_search_delete():
+    """删除搜索历史"""
+    try:
+        keyword = request.json.get('keyword') if request.json else None
+        search_type = request.json.get('type') if request.json else None
+        deleted = db.delete_search_history(keyword, search_type)
+        return format_response({"deleted": deleted}, True, f"已删除 {deleted} 条记录")
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+# ==================== 搜索评论 API ====================
+
+@app.route('/api/search/comment', methods=['POST'])
+def api_search_comment_add():
+    """添加搜索评论"""
+    try:
+        data = request.json or {}
+        search_id = data.get('search_id')
+        keyword = data.get('keyword', '')
+        content = data.get('content', '').strip()
+        rating = data.get('rating')
+        if not search_id or not content:
+            return format_response(None, False, "缺少 search_id 或评论内容")
+        if rating is not None:
+            rating = max(1, min(5, int(rating)))
+        ip = request.remote_addr
+        db.save_comment(search_id, keyword, content, rating, ip)
+        return format_response(None, True, "评论已保存")
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/search/comment', methods=['PUT'])
+def api_search_comment_update():
+    """更新搜索评论"""
+    try:
+        data = request.json or {}
+        comment_id = data.get('comment_id')
+        content = data.get('content')
+        rating = data.get('rating')
+        if not comment_id:
+            return format_response(None, False, "缺少 comment_id")
+        if rating is not None:
+            rating = max(1, min(5, int(rating)))
+        db.update_comment(comment_id, content, rating)
+        return format_response(None, True, "评论已更新")
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/search/comment', methods=['DELETE'])
+def api_search_comment_delete():
+    """删除搜索评论"""
+    try:
+        data = request.json or {}
+        comment_id = data.get('comment_id')
+        if not comment_id:
+            return format_response(None, False, "缺少 comment_id")
+        ok = db.delete_comment(comment_id)
+        return format_response({"deleted": ok}, True, "评论已删除" if ok else "评论不存在")
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/search/comments')
+def api_search_comments():
+    """查询搜索评论"""
+    try:
+        search_id = request.args.get('search_id', type=int)
+        keyword = request.args.get('keyword')
+        limit = request.args.get('limit', 50, type=int)
+        data = db.query_comments(search_id, keyword, limit)
+        return format_response(data, True, f"共 {len(data)} 条")
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/search/comment/stats')
+def api_search_comment_stats():
+    """查询评论统计"""
+    try:
+        data = db.query_comment_stats()
+        return format_response(data, True, f"共 {len(data)} 条")
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+# ==================== 用户认证 API ====================
+
+# 内存中存储验证码（生产环境应用 Redis）
+_sms_codes: dict[str, str] = {}
+
+
+def _get_current_user() -> dict | None:
+    """从 session 获取当前登录用户"""
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    return db.get_user_by_id(uid)
+
+
+@app.route('/api/auth/send_code', methods=['POST'])
+def api_send_code():
+    """发送短信验证码（测试环境固定 0000）"""
+    data = request.json or {}
+    phone = data.get("phone", "").strip()
+    if not phone or len(phone) != 11 or not phone.isdigit():
+        return format_response(None, False, "请输入正确的11位手机号")
+    # 测试环境：固定验证码 0000
+    _sms_codes[phone] = "0000"
+    return format_response(None, True, "验证码已发送（测试环境固定为 0000）")
+
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_register():
+    """注册新用户"""
+    data = request.json or {}
+    phone = data.get("phone", "").strip()
+    code = data.get("code", "").strip()
+    nickname = data.get("nickname", "").strip()
+
+    if not phone or len(phone) != 11 or not phone.isdigit():
+        return format_response(None, False, "请输入正确的11位手机号")
+    if not code:
+        return format_response(None, False, "请输入验证码")
+
+    # 验证码校验
+    saved_code = _sms_codes.get(phone)
+    if not saved_code or code != saved_code:
+        return format_response(None, False, "验证码错误")
+
+    # 检查是否已注册
+    existing = db.get_user_by_phone(phone)
+    if existing:
+        return format_response(None, False, "该手机号已注册，请直接登录")
+
+    user = db.create_user(phone, nickname)
+    if not user:
+        return format_response(None, False, "注册失败")
+
+    # 自动登录
+    session.permanent = True
+    session["user_id"] = user["id"]
+    _sms_codes.pop(phone, None)
+
+    return format_response({
+        "id": user["id"],
+        "phone": user["phone"],
+        "nickname": user["nickname"],
+    }, True, "注册成功")
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    """登录"""
+    data = request.json or {}
+    phone = data.get("phone", "").strip()
+    code = data.get("code", "").strip()
+
+    if not phone or not code:
+        return format_response(None, False, "请输入手机号和验证码")
+
+    # 验证码校验
+    saved_code = _sms_codes.get(phone)
+    if not saved_code or code != saved_code:
+        return format_response(None, False, "验证码错误")
+
+    user = db.get_user_by_phone(phone)
+    if not user:
+        return format_response(None, False, "该手机号未注册，请先注册")
+
+    # 登录
+    session.permanent = True
+    session["user_id"] = user["id"]
+    db.update_user_login(user["id"])
+    _sms_codes.pop(phone, None)
+
+    return format_response({
+        "id": user["id"],
+        "phone": user["phone"],
+        "nickname": user["nickname"],
+    }, True, "登录成功")
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    """退出登录"""
+    session.clear()
+    return format_response(None, True, "已退出登录")
+
+
+@app.route('/api/auth/me')
+def api_auth_me():
+    """获取当前登录用户信息"""
+    user = _get_current_user()
+    if not user:
+        return format_response(None, False, "未登录")
+    return format_response({
+        "id": user["id"],
+        "phone": user["phone"],
+        "nickname": user["nickname"],
+    })
+
+
+# ==================== 笔记 API ====================
+
+@app.route('/api/notes', methods=['POST'])
+def api_note_add():
+    """添加笔记"""
+    user = _get_current_user()
+    if not user:
+        return format_response(None, False, "请先登录")
+    data = request.json or {}
+    keyword = data.get("keyword", "").strip()
+    title = data.get("title", "").strip()
+    content = data.get("content", "").strip()
+    tags = data.get("tags", "").strip()
+    if not title or not content:
+        return format_response(None, False, "标题和内容不能为空")
+    note = db.save_note(user["id"], keyword, title, content, tags)
+    return format_response(note, True, "笔记已保存")
+
+
+@app.route('/api/notes', methods=['PUT'])
+def api_note_update():
+    """更新笔记"""
+    user = _get_current_user()
+    if not user:
+        return format_response(None, False, "请先登录")
+    data = request.json or {}
+    note_id = data.get("note_id")
+    if not note_id:
+        return format_response(None, False, "缺少 note_id")
+    ok = db.update_note(
+        note_id, user["id"],
+        title=data.get("title"),
+        content=data.get("content"),
+        keyword=data.get("keyword"),
+        tags=data.get("tags"),
+    )
+    return format_response(None, ok, "更新成功" if ok else "更新失败")
+
+
+@app.route('/api/notes', methods=['DELETE'])
+def api_note_delete():
+    """删除笔记"""
+    user = _get_current_user()
+    if not user:
+        return format_response(None, False, "请先登录")
+    data = request.json or {}
+    note_id = data.get("note_id")
+    if not note_id:
+        return format_response(None, False, "缺少 note_id")
+    ok = db.delete_note(note_id, user["id"])
+    return format_response(None, ok, "删除成功" if ok else "删除失败")
+
+
+@app.route('/api/notes')
+def api_notes_list():
+    """查询笔记列表"""
+    user = _get_current_user()
+    if not user:
+        return format_response(None, False, "请先登录")
+    keyword = request.args.get("keyword")
+    limit = request.args.get("limit", 50, type=int)
+    data = db.query_notes(user["id"], keyword, limit)
+    return format_response(data, True, f"共 {len(data)} 条")
+
+
+@app.route('/api/notes/<int:note_id>')
+def api_note_detail(note_id):
+    """获取笔记详情"""
+    user = _get_current_user()
+    if not user:
+        return format_response(None, False, "请先登录")
+    note = db.get_note(note_id, user["id"])
+    if not note:
+        return format_response(None, False, "笔记不存在")
+    return format_response(note)
 
 
 # ==================== 系统 API ====================

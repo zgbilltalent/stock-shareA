@@ -133,7 +133,7 @@ _TABLE_SQLS = [
         profit_yoy      DOUBLE,
         dividend_yield  DOUBLE,
         total_score     DOUBLE,
-        signal          VARCHAR(20),
+        `signal`        VARCHAR(20),
         summary_json    JSON,
         raw_json        JSON,
         captured_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -147,7 +147,7 @@ _TABLE_SQLS = [
         hgt_today   DOUBLE,
         sgt_today   DOUBLE,
         total       DOUBLE,
-        signal      VARCHAR(20),
+        `signal`      VARCHAR(20),
         captured_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uk_nb_captured (captured_at),
         INDEX idx_nb_captured (captured_at)
@@ -266,6 +266,55 @@ _TABLE_SQLS = [
         UNIQUE KEY uk_fd_code_time (code, captured_at),
         INDEX idx_fd_code (code)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+
+    """CREATE TABLE IF NOT EXISTS search_log (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        keyword     VARCHAR(80) NOT NULL,
+        search_type VARCHAR(30) NOT NULL COMMENT 'quote/valuation/research/disclosure/fundamental/signals',
+        result_json JSON COMMENT '搜索结果摘要',
+        ip_address  VARCHAR(45),
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_search_keyword (keyword),
+        INDEX idx_search_type (search_type),
+        INDEX idx_search_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+
+    """CREATE TABLE IF NOT EXISTS search_comment (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        search_id   INT NOT NULL COMMENT '关联 search_log.id',
+        keyword     VARCHAR(80) NOT NULL,
+        content     TEXT NOT NULL COMMENT '评论内容',
+        rating      TINYINT COMMENT '评分 1-5',
+        ip_address  VARCHAR(45),
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_comment_search_id (search_id),
+        INDEX idx_comment_keyword (keyword),
+        INDEX idx_comment_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+
+    """CREATE TABLE IF NOT EXISTS user (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        phone       VARCHAR(20) NOT NULL,
+        nickname    VARCHAR(40) DEFAULT '',
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_login  DATETIME DEFAULT NULL,
+        UNIQUE KEY uk_user_phone (phone)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+
+    """CREATE TABLE IF NOT EXISTS note (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_id     INT NOT NULL COMMENT '关联 user.id',
+        keyword     VARCHAR(80) DEFAULT '' COMMENT '关联股票代码',
+        title       VARCHAR(200) NOT NULL COMMENT '笔记标题',
+        content     TEXT NOT NULL COMMENT '笔记内容',
+        tags        VARCHAR(200) DEFAULT '' COMMENT '标签，逗号分隔',
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_note_user_id (user_id),
+        INDEX idx_note_keyword (keyword),
+        INDEX idx_note_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
 ]
 
 
@@ -326,7 +375,7 @@ def save_valuation(code: str, data: dict):
             cur.execute(
                 """INSERT IGNORE INTO valuation_record
                 (code, name, pe_ttm, pb, peg, forward_pe, roe_pct, revenue_yoy, profit_yoy,
-                 dividend_yield, total_score, signal, summary_json, raw_json)
+                 dividend_yield, total_score, `signal`, summary_json, raw_json)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     code, data.get("name"), data.get("pe_ttm"), data.get("pb"),
@@ -345,7 +394,7 @@ def save_northbound(data: dict):
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT IGNORE INTO northbound_flow (hgt_today, sgt_today, total, signal) VALUES (%s,%s,%s,%s)",
+                "INSERT IGNORE INTO northbound_flow (hgt_today, sgt_today, total, `signal`) VALUES (%s,%s,%s,%s)",
                 (data.get("hgt_today"), data.get("sgt_today"), data.get("total"), data.get("signal")),
             )
         conn.commit()
@@ -676,3 +725,307 @@ def check_connection() -> bool:
                 return True
     except Exception:
         return False
+
+
+# ==================== 搜索记录 ====================
+
+
+def save_search(keyword: str, search_type: str, result_json: str = None, ip_address: str = None):
+    """保存搜索记录"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO search_log (keyword, search_type, result_json, ip_address)
+                VALUES (%s, %s, %s, %s)""",
+                (keyword, search_type, result_json, ip_address),
+            )
+        conn.commit()
+
+
+def query_search_history(keyword: str = None, search_type: str = None, limit: int = 50) -> list[dict]:
+    """查询搜索历史"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            conditions = []
+            params = []
+            if keyword:
+                conditions.append("keyword LIKE %s")
+                params.append(f"%{keyword}%")
+            if search_type:
+                conditions.append("search_type = %s")
+                params.append(search_type)
+            where = " WHERE " + " AND ".join(conditions) if conditions else ""
+            params.append(limit)
+            cur.execute(
+                f"SELECT * FROM search_log{where} ORDER BY created_at DESC LIMIT %s",
+                params,
+            )
+            return [_serialize_row(r) for r in cur.fetchall()]
+
+
+def query_recent_searches(limit: int = 20) -> list[dict]:
+    """查询最近搜索记录（去重，每种关键词只保留最新一条）"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT keyword, search_type, MAX(created_at) AS last_searched, COUNT(*) AS search_count
+                FROM search_log
+                GROUP BY keyword, search_type
+                ORDER BY last_searched DESC
+                LIMIT %s""",
+                (limit,),
+            )
+            return [_serialize_row(r) for r in cur.fetchall()]
+
+
+def query_search_stats() -> list[dict]:
+    """查询搜索统计（按关键词统计搜索次数）"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT keyword, search_type, COUNT(*) AS search_count, MAX(created_at) AS last_searched
+                FROM search_log
+                GROUP BY keyword, search_type
+                ORDER BY search_count DESC
+                LIMIT 30"""
+            )
+            return [_serialize_row(r) for r in cur.fetchall()]
+
+
+def delete_search_history(keyword: str = None, search_type: str = None) -> int:
+    """删除搜索历史，返回删除行数"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            conditions = []
+            params = []
+            if keyword:
+                conditions.append("keyword = %s")
+                params.append(keyword)
+            if search_type:
+                conditions.append("search_type = %s")
+                params.append(search_type)
+            where = " WHERE " + " AND ".join(conditions) if conditions else ""
+            cur.execute(f"DELETE FROM search_log{where}", params)
+            deleted = cur.rowcount
+        conn.commit()
+        return deleted
+
+
+# ==================== 搜索评论 ====================
+
+
+def save_comment(search_id: int, keyword: str, content: str, rating: int = None, ip_address: str = None):
+    """保存搜索评论"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO search_comment (search_id, keyword, content, rating, ip_address)
+                VALUES (%s, %s, %s, %s, %s)""",
+                (search_id, keyword, content, rating, ip_address),
+            )
+        conn.commit()
+
+
+def update_comment(comment_id: int, content: str = None, rating: int = None):
+    """更新评论"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            parts = []
+            params = []
+            if content is not None:
+                parts.append("content = %s")
+                params.append(content)
+            if rating is not None:
+                parts.append("rating = %s")
+                params.append(rating)
+            if not parts:
+                return
+            params.append(comment_id)
+            cur.execute(
+                f"UPDATE search_comment SET {', '.join(parts)} WHERE id = %s",
+                params,
+            )
+        conn.commit()
+
+
+def delete_comment(comment_id: int) -> bool:
+    """删除评论，返回是否成功"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM search_comment WHERE id = %s", (comment_id,))
+            deleted = cur.rowcount > 0
+        conn.commit()
+        return deleted
+
+
+def query_comments(search_id: int = None, keyword: str = None, limit: int = 50) -> list[dict]:
+    """查询评论"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            conditions = []
+            params = []
+            if search_id:
+                conditions.append("sc.search_id = %s")
+                params.append(search_id)
+            if keyword:
+                conditions.append("sc.keyword LIKE %s")
+                params.append(f"%{keyword}%")
+            where = " WHERE " + " AND ".join(conditions) if conditions else ""
+            params.append(limit)
+            cur.execute(
+                f"""SELECT sc.*, sl.search_type, sl.result_json
+                FROM search_comment sc
+                LEFT JOIN search_log sl ON sc.search_id = sl.id
+                {where}
+                ORDER BY sc.created_at DESC
+                LIMIT %s""",
+                params,
+            )
+            return [_serialize_row(r) for r in cur.fetchall()]
+
+
+def query_comment_stats() -> list[dict]:
+    """查询评论统计（按关键词汇总）"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT keyword, COUNT(*) AS comment_count,
+                   AVG(rating) AS avg_rating,
+                   MAX(created_at) AS last_commented
+                FROM search_comment
+                WHERE rating IS NOT NULL
+                GROUP BY keyword
+                ORDER BY comment_count DESC
+                LIMIT 30"""
+            )
+            return [_serialize_row(r) for r in cur.fetchall()]
+
+
+# ==================== 用户 ====================
+
+
+def create_user(phone: str, nickname: str = "") -> dict | None:
+    """注册用户，返回用户信息"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO user (phone, nickname) VALUES (%s, %s)",
+                (phone, nickname or f"用户{phone[-4:]}"),
+            )
+            cur.execute("SELECT * FROM user WHERE phone = %s", (phone,))
+            user = cur.fetchone()
+        conn.commit()
+        return _serialize_row(user) if user else None
+
+
+def get_user_by_phone(phone: str) -> dict | None:
+    """根据手机号查询用户"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM user WHERE phone = %s", (phone,))
+            row = cur.fetchone()
+            return _serialize_row(row) if row else None
+
+
+def get_user_by_id(user_id: int) -> dict | None:
+    """根据ID查询用户"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM user WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+            return _serialize_row(row) if row else None
+
+
+def update_user_login(user_id: int):
+    """更新最后登录时间"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE user SET last_login = NOW() WHERE id = %s", (user_id,)
+            )
+        conn.commit()
+
+
+# ==================== 笔记 ====================
+
+
+def save_note(user_id: int, keyword: str, title: str, content: str, tags: str = "") -> dict | None:
+    """保存笔记"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO note (user_id, keyword, title, content, tags)
+                VALUES (%s, %s, %s, %s, %s)""",
+                (user_id, keyword, title, content, tags),
+            )
+            cur.execute("SELECT * FROM note WHERE id = LAST_INSERT_ID()")
+            row = cur.fetchone()
+        conn.commit()
+        return _serialize_row(row) if row else None
+
+
+def update_note(note_id: int, user_id: int, title: str = None, content: str = None, keyword: str = None, tags: str = None) -> bool:
+    """更新笔记（仅作者可更新）"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            parts = []
+            params = []
+            if title is not None:
+                parts.append("title = %s")
+                params.append(title)
+            if content is not None:
+                parts.append("content = %s")
+                params.append(content)
+            if keyword is not None:
+                parts.append("keyword = %s")
+                params.append(keyword)
+            if tags is not None:
+                parts.append("tags = %s")
+                params.append(tags)
+            if not parts:
+                return False
+            params.extend([note_id, user_id])
+            cur.execute(
+                f"UPDATE note SET {', '.join(parts)} WHERE id = %s AND user_id = %s",
+                params,
+            )
+            ok = cur.rowcount > 0
+        conn.commit()
+        return ok
+
+
+def delete_note(note_id: int, user_id: int) -> bool:
+    """删除笔记（仅作者可删除）"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM note WHERE id = %s AND user_id = %s", (note_id, user_id))
+            ok = cur.rowcount > 0
+        conn.commit()
+        return ok
+
+
+def query_notes(user_id: int, keyword: str = None, limit: int = 50) -> list[dict]:
+    """查询笔记"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            conditions = ["user_id = %s"]
+            params = [user_id]
+            if keyword:
+                conditions.append("keyword LIKE %s")
+                params.append(f"%{keyword}%")
+            where = " WHERE " + " AND ".join(conditions)
+            params.append(limit)
+            cur.execute(
+                f"SELECT * FROM note{where} ORDER BY updated_at DESC LIMIT %s",
+                params,
+            )
+            return [_serialize_row(r) for r in cur.fetchall()]
+
+
+def get_note(note_id: int, user_id: int) -> dict | None:
+    """获取单条笔记（仅作者）"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM note WHERE id = %s AND user_id = %s", (note_id, user_id))
+            row = cur.fetchone()
+            return _serialize_row(row) if row else None

@@ -182,6 +182,7 @@
         .badge-green { background: rgba(34, 197, 94, 0.2); color: var(--accent-green); }
         .badge-red { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
         .badge-blue { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); }
+        .badge-yellow { background: rgba(234, 179, 8, 0.2); color: var(--accent-yellow); }
         
         .toast {
             position: fixed;
@@ -199,6 +200,31 @@
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
         }
+
+        .modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 100;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .modal-box {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 90%; max-width: 560px;
+            max-height: 80vh; overflow-y: auto;
+            border: 1px solid #475569;
+        }
+        .modal-box h3 { font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem; }
+        .star-rating { display: inline-flex; gap: 4px; cursor: pointer; font-size: 1.25rem; }
+        .star-rating .star { color: #475569; transition: color 0.15s; }
+        .star-rating .star.active, .star-rating .star:hover { color: #eab308; }
+        .comment-item {
+            background: var(--bg-card); border-radius: 8px; padding: 0.75rem 1rem;
+            margin-bottom: 0.5rem;
+        }
+        .comment-item .comment-meta { font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; }
+        .comment-item .comment-actions { font-size: 0.75rem; margin-top: 0.5rem; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -212,6 +238,9 @@
             <div class="flex items-center gap-4">
                 <span id="clock" class="text-sm text-slate-400"></span>
                 <button onclick="refreshAll()" class="btn btn-secondary refresh-btn">刷新全部</button>
+                <span id="userArea">
+                    <button onclick="openAuthModal('login')" class="btn btn-primary refresh-btn">登录</button>
+                </span>
             </div>
         </div>
     </header>
@@ -224,7 +253,10 @@
                 <h2 class="card-title">股票查询</h2>
             </div>
             <div class="flex gap-4 flex-wrap">
-                <input type="text" id="stockCode" class="input w-48" placeholder="输入股票代码，如 688017">
+                <div class="relative">
+                    <input type="text" id="stockCode" class="input w-48" placeholder="输入股票代码，如 688017" autocomplete="off">
+                    <div id="searchSuggestions" class="absolute left-0 top-full mt-1 w-72 bg-slate-800 rounded-lg shadow-lg z-50 hidden max-h-60 overflow-y-auto"></div>
+                </div>
                 <button onclick="queryStock()" class="btn btn-primary">查询</button>
                 <button onclick="queryValuation()" class="btn btn-secondary">完整估值</button>
                 <button onclick="queryResearch()" class="btn btn-secondary">个股研报</button>
@@ -243,6 +275,8 @@
             <button class="tab-btn" data-tab="northbound">北向资金</button>
             <button class="tab-btn" data-tab="lhb">龙虎榜</button>
             <button class="tab-btn" data-tab="news">市场快讯</button>
+            <button class="tab-btn" data-tab="history">搜索历史</button>
+            <button class="tab-btn" data-tab="notes">我的笔记</button>
         </div>
 
         <!-- Tab Contents -->
@@ -343,6 +377,176 @@
                 <div id="newsTable" class="table-container"></div>
             </div>
         </div>
+
+        <!-- Search History -->
+        <div id="tab-history" class="tab-content hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">搜索历史</h2>
+                    <div class="flex gap-2">
+                        <select id="historyType" class="input w-32" onchange="loadSearchHistory()">
+                            <option value="">全部类型</option>
+                            <option value="quote">行情</option>
+                            <option value="valuation">估值</option>
+                            <option value="research">研报</option>
+                            <option value="disclosure">公告</option>
+                            <option value="fundamental">基础数据</option>
+                        </select>
+                        <button onclick="loadSearchHistory()" class="btn btn-secondary refresh-btn">刷新</button>
+                        <button onclick="clearAllHistory()" class="btn btn-secondary refresh-btn" style="color:#ef4444">清空</button>
+                    </div>
+                </div>
+                <div id="historyTable" class="table-container"></div>
+            </div>
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2 class="card-title">搜索统计</h2>
+                </div>
+                <div id="statsTable" class="table-container"></div>
+            </div>
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2 class="card-title">我的评论</h2>
+                    <button onclick="loadMyComments()" class="btn btn-secondary refresh-btn">刷新</button>
+                </div>
+                <div id="myCommentsTable" class="table-container"></div>
+            </div>
+        </div>
+
+        <!-- Notes Tab -->
+        <div id="tab-notes" class="tab-content hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">我的笔记</h2>
+                    <div class="flex gap-2">
+                        <input type="text" id="noteSearchKeyword" class="input w-40" placeholder="搜索股票代码">
+                        <button onclick="loadNotes()" class="btn btn-secondary refresh-btn">搜索</button>
+                        <button onclick="openNoteModal()" class="btn btn-primary refresh-btn">+ 新建笔记</button>
+                    </div>
+                </div>
+                <div id="notesList" class="table-container"></div>
+            </div>
+        </div>
+
+        <!-- Auth Modal -->
+        <div id="authModal" class="modal-overlay hidden">
+            <div class="modal-box" style="max-width:400px">
+                <h3 id="authModalTitle">登录</h3>
+                <div class="mb-3">
+                    <label class="block text-sm text-slate-400 mb-1">手机号</label>
+                    <input type="tel" id="authPhone" class="input" placeholder="请输入11位手机号" maxlength="11">
+                </div>
+                <div class="mb-3" id="authNicknameRow" style="display:none">
+                    <label class="block text-sm text-slate-400 mb-1">昵称（选填）</label>
+                    <input type="text" id="authNickname" class="input" placeholder="起个名字" maxlength="20">
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm text-slate-400 mb-1">验证码</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="authCode" class="input flex-1" placeholder="输入验证码" maxlength="4">
+                        <button onclick="sendSmsCode()" id="sendCodeBtn" class="btn btn-secondary whitespace-nowrap">发送验证码</button>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-1">测试环境验证码固定为 0000</p>
+                </div>
+                <div class="flex gap-2 justify-end">
+                    <button onclick="closeAuthModal()" class="btn btn-secondary">取消</button>
+                    <button onclick="submitAuth()" id="authSubmitBtn" class="btn btn-primary">登录</button>
+                </div>
+                <div class="mt-3 text-center text-sm">
+                    <span id="authSwitchText">没有账号？</span>
+                    <a href="#" id="authSwitchLink" onclick="switchAuthMode();return false;" class="text-blue-400 hover:underline">去注册</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Note Modal -->
+        <div id="noteModal" class="modal-overlay hidden">
+            <div class="modal-box">
+                <h3 id="noteModalTitle">新建笔记</h3>
+                <div class="mb-3">
+                    <label class="block text-sm text-slate-400 mb-1">关联股票代码（选填）</label>
+                    <input type="text" id="noteKeyword" class="input" placeholder="如 600519">
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm text-slate-400 mb-1">标题</label>
+                    <input type="text" id="noteTitle" class="input" placeholder="笔记标题" maxlength="100">
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm text-slate-400 mb-1">内容</label>
+                    <textarea id="noteContent" class="input" rows="8" placeholder="记录你的观点、分析..."></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm text-slate-400 mb-1">标签（选填，逗号分隔）</label>
+                    <input type="text" id="noteTags" class="input" placeholder="如：价值投资,消费">
+                </div>
+                <div class="flex gap-2 justify-end">
+                    <button onclick="closeNoteModal()" class="btn btn-secondary">取消</button>
+                    <button onclick="submitNote()" class="btn btn-primary">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Comment Modal -->
+        <div id="commentModal" class="modal-overlay hidden">
+            <div class="modal-box">
+                <h3 id="commentModalTitle">写评论</h3>
+                <div class="mb-3">
+                    <label class="block text-sm text-slate-400 mb-1">评分</label>
+                    <div class="star-rating" id="starRating">
+                        <span class="star" data-val="1">&#9733;</span>
+                        <span class="star" data-val="2">&#9733;</span>
+                        <span class="star" data-val="3">&#9733;</span>
+                        <span class="star" data-val="4">&#9733;</span>
+                        <span class="star" data-val="5">&#9733;</span>
+                    </div>
+                    <span id="ratingText" class="text-sm text-slate-400 ml-2"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm text-slate-400 mb-1">评论内容</label>
+                    <textarea id="commentContent" class="input" rows="4" placeholder="写下你的看法..."></textarea>
+                </div>
+                <div class="flex gap-2 justify-end">
+                    <button onclick="closeCommentModal()" class="btn btn-secondary">取消</button>
+                    <button onclick="submitComment()" class="btn btn-primary">提交</button>
+                </div>
+                <!-- Existing comments for this search -->
+                <div id="commentList" class="mt-4 border-t border-slate-600 pt-4"></div>
+            </div>
+        </div>
+
+        <!-- Stock Detail Modal (K线 + 逐笔成交) -->
+        <div id="stockDetailModal" class="modal-overlay hidden">
+            <div class="modal-box" style="max-width:960px;max-height:90vh;padding:0">
+                <div style="padding:1rem 1.5rem;border-bottom:1px solid #475569;display:flex;justify-content:space-between;align-items:center">
+                    <h3 id="stockDetailTitle" style="margin:0">股票详情</h3>
+                    <button onclick="closeStockDetail()" class="btn btn-secondary" style="padding:0.25rem 0.75rem">关闭</button>
+                </div>
+                <!-- Sub tabs -->
+                <div style="padding:0.5rem 1.5rem;display:flex;gap:0.5rem;border-bottom:1px solid #334155">
+                    <button class="tab-btn active" data-detail-tab="kline" onclick="switchDetailTab('kline')">K线图</button>
+                    <button class="tab-btn" data-detail-tab="tick" onclick="switchDetailTab('tick')">逐笔成交</button>
+                    <select id="klineCategory" class="input" style="width:auto;margin-left:auto" onchange="loadKline()">
+                        <option value="4">日K</option>
+                        <option value="5">周K</option>
+                        <option value="6">月K</option>
+                        <option value="7">1分钟</option>
+                        <option value="8">5分钟</option>
+                        <option value="9">15分钟</option>
+                        <option value="10">30分钟</option>
+                        <option value="11">60分钟</option>
+                    </select>
+                </div>
+                <div style="padding:1rem 1.5rem;overflow-y:auto;max-height:calc(90vh - 120px)">
+                    <div id="detailKline">
+                        <canvas id="klineCanvas" width="900" height="400" style="width:100%;border-radius:8px;background:#0f172a"></canvas>
+                        <div id="klineVolumeCanvas" style="margin-top:4px"></div>
+                    </div>
+                    <div id="detailTick" class="hidden">
+                        <div id="tickTable" class="table-container" style="max-height:500px;overflow-y:auto"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- Footer -->
@@ -424,6 +628,8 @@
                     case 'northbound': loadNorthbound(); break;
                     case 'lhb': loadDragonTiger(); break;
                     case 'news': loadNews(); break;
+                    case 'history': loadSearchHistory(); loadMyComments(); break;
+                    case 'notes': loadNotes(); break;
                     case 'signals': loadQuickStats(); break;
                 }
             }
@@ -441,7 +647,15 @@
             const res = await apiRequest(`${API_BASE}/quote/${code}`);
             if (res.success && res.data) {
                 const d = res.data;
+                const volHand = d.volume || 0;
+                const volWan = volHand ? (volHand / 10000).toFixed(0) : 0;
+                const amtWan = d.amount_wan || 0;
+                const amtYi = amtWan ? (amtWan / 10000).toFixed(2) : 0;
                 el.innerHTML = `
+                    <div class="flex items-center gap-3 mb-3">
+                        <span class="text-lg font-bold text-blue-400">${escapeHtml(d.name || '')}(${code})</span>
+                        <button onclick="openStockDetail('${code}')" class="btn btn-primary" style="font-size:0.75rem;padding:0.25rem 0.75rem">查看K线 & 逐笔</button>
+                    </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div class="stat-card">
                             <div class="stat-label">当前价</div>
@@ -453,11 +667,27 @@
                         </div>
                         <div class="stat-card">
                             <div class="stat-label">成交量</div>
-                            <div class="stat-value">${d.volume ? (d.volume/10000).toFixed(0) + '万' : '-'}</div>
+                            <div class="stat-value">${volWan > 0 ? volWan + '万手' : '-'}</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-label">成交额</div>
-                            <div class="stat-value">${d.amount ? (d.amount/100000000).toFixed(2) + '亿' : '-'}</div>
+                            <div class="stat-value">${amtYi > 0 ? amtYi + '亿' : '-'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">换手率</div>
+                            <div class="stat-value">${d.turnover_pct ? d.turnover_pct.toFixed(2) + '%' : '-'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">量比</div>
+                            <div class="stat-value">${d.vol_ratio || d.volume_ratio || '-'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">PE(TTM)</div>
+                            <div class="stat-value">${d.pe_ttm ? d.pe_ttm.toFixed(2) : '-'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">PB</div>
+                            <div class="stat-value">${d.pb ? d.pb.toFixed(2) : '-'}</div>
                         </div>
                     </div>
                 `;
@@ -503,13 +733,15 @@
             showLoading(el);
             const res = await apiRequest(`${API_BASE}/research/stock/${code}`);
             if (res.success && res.data && res.data.length > 0) {
-                let html = '<table><thead><tr><th>标题</th><th>机构</th><th>评级</th><th>日期</th></tr></thead><tbody>';
-                res.data.slice(0, 10).forEach(r => {
+                let html = '<table><thead><tr><th>标题</th><th>机构</th><th>评级</th><th>日期</th><th>今年EPS</th><th>明年EPS</th></tr></thead><tbody>';
+                res.data.slice(0, 15).forEach(r => {
                     html += `<tr>
-                        <td>${r.title || r.研报标题 || '-'}</td>
-                        <td>${r.org || r.机构 || '-'}</td>
-                        <td>${r.rating || r.评级 || '-'}</td>
-                        <td>${r.date || r.日期 || '-'}</td>
+                        <td>${r.title || '-'}</td>
+                        <td>${r.org || '-'}</td>
+                        <td><span class="badge badge-blue">${r.rating || '-'}</span></td>
+                        <td>${r.date || '-'}</td>
+                        <td>${r.eps_this_year || '-'}</td>
+                        <td>${r.eps_next_year || '-'}</td>
                     </tr>`;
                 });
                 html += '</tbody></table>';
@@ -529,11 +761,15 @@
             showLoading(el);
             const res = await apiRequest(`${API_BASE}/disclosure/${code}`);
             if (res.success && res.data && res.data.length > 0) {
-                let html = '<table><thead><tr><th>公告标题</th><th>时间</th></tr></thead><tbody>';
-                res.data.slice(0, 10).forEach(r => {
+                let html = '<table><thead><tr><th>公告标题</th><th>类型</th><th>日期</th></tr></thead><tbody>';
+                res.data.slice(0, 15).forEach(r => {
+                    const titleHtml = r.pdf_url
+                        ? `<a href="${r.pdf_url}" target="_blank" class="text-blue-400 hover:underline">${r.title || '-'}</a>`
+                        : (r.title || '-');
                     html += `<tr>
-                        <td><a href="${r.pdf链接 || '#'}" target="_blank" class="text-blue-400 hover:underline">${r.公告标题 || '-'}</a></td>
-                        <td>${r.公告时间 || '-'}</td>
+                        <td>${titleHtml}</td>
+                        <td><span class="badge badge-blue">${r.type || '-'}</span></td>
+                        <td>${r.date || '-'}</td>
                     </tr>`;
                 });
                 html += '</tbody></table>';
@@ -597,8 +833,9 @@
             if (res.data && res.data.length > 0) {
                 let html = '<table><thead><tr><th>代码</th><th>名称</th><th>涨幅</th><th>题材归因</th></tr></thead><tbody>';
                 res.data.forEach(s => {
+                    const code = s.代码 || s.code || '-';
                     html += `<tr>
-                        <td>${s.代码 || s.code || '-'}</td>
+                        <td><a href="#" onclick="openStockDetail('${code}');return false;" class="text-blue-400 hover:underline">${code}</a></td>
                         <td>${s.名称 || s.name || '-'}</td>
                         <td>${formatChange(s.涨幅 || s.change)}</td>
                         <td>${s.题材归因 || s.reason || '-'}</td>
@@ -702,7 +939,7 @@
                 html += '<table><thead><tr><th>代码</th><th>名称</th><th>原因</th><th>净买(万)</th><th>涨跌幅</th></tr></thead><tbody>';
                 res.data.stocks.forEach(s => {
                     html += `<tr>
-                        <td>${s.code || '-'}</td>
+                        <td><a href="#" onclick="openStockDetail('${s.code || '-'}');return false;" class="text-blue-400 hover:underline">${s.code || '-'}</a></td>
                         <td>${s.name || '-'}</td>
                         <td class="max-w-xs truncate">${s.reason || '-'}</td>
                         <td class="${(s.net_buy_wan || 0) > 0 ? 'positive' : 'negative'}">${(s.net_buy_wan || 0).toFixed(0)}</td>
@@ -745,17 +982,746 @@
             window.lhbLoaded = false;
             window.newsLoaded = false;
             window.signalsLoaded = false;
+            window.historyLoaded = false;
+            window.notesLoaded = false;
             
             switchTab('signals');
             showToast('正在刷新...');
         }
 
-        // Enter key for stock query
-        document.getElementById('stockCode').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') queryStock();
+        // ==================== Stock Detail Modal ====================
+        let _detailCode = '';
+
+        function openStockDetail(code) {
+            _detailCode = code;
+            document.getElementById('stockDetailTitle').textContent = `股票详情 - ${code}`;
+            document.getElementById('stockDetailModal').classList.remove('hidden');
+            switchDetailTab('kline');
+        }
+
+        function closeStockDetail() {
+            document.getElementById('stockDetailModal').classList.add('hidden');
+        }
+
+        function switchDetailTab(tab) {
+            document.querySelectorAll('[data-detail-tab]').forEach(b => b.classList.remove('active'));
+            document.querySelector(`[data-detail-tab="${tab}"]`).classList.add('active');
+            document.getElementById('detailKline').classList.toggle('hidden', tab !== 'kline');
+            document.getElementById('detailTick').classList.toggle('hidden', tab !== 'tick');
+            if (tab === 'kline') loadKline();
+            if (tab === 'tick') loadTick();
+        }
+
+        async function loadKline() {
+            const code = _detailCode;
+            const category = document.getElementById('klineCategory').value;
+            const res = await apiRequest(`${API_BASE}/kline/${code}?category=${category}&offset=120`);
+            if (res.success && res.data && res.data.length > 0) {
+                drawKline(res.data);
+            } else {
+                const c = document.getElementById('klineCanvas');
+                const ctx = c.getContext('2d');
+                ctx.clearRect(0, 0, c.width, c.height);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('暂无K线数据', c.width / 2, c.height / 2);
+            }
+        }
+
+        function drawKline(data) {
+            const canvas = document.getElementById('klineCanvas');
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = 400 * dpr;
+            const ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            const W = rect.width, H = 400;
+
+            // Clear
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, W, H);
+
+            const padding = { top: 20, right: 60, bottom: 80, left: 10 };
+            const chartW = W - padding.left - padding.right;
+            const chartH = H - padding.top - padding.bottom;
+
+            if (!data || data.length === 0) return;
+
+            // Compute price range
+            let minP = Infinity, maxP = -Infinity;
+            let maxVol = 0;
+            data.forEach(d => {
+                const h = parseFloat(d.high), l = parseFloat(d.low);
+                if (h > maxP) maxP = h;
+                if (l < minP) minP = l;
+                const v = parseFloat(d.volume || 0);
+                if (v > maxVol) maxVol = v;
+            });
+            const priceRange = maxP - minP || 1;
+            const pricePad = priceRange * 0.05;
+            minP -= pricePad;
+            maxP += pricePad;
+            const totalRange = maxP - minP;
+
+            const barW = chartW / data.length;
+            const bodyW = Math.max(barW * 0.7, 2);
+
+            // Grid lines
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 4; i++) {
+                const y = padding.top + (chartH * i) / 4;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(W - padding.right, y);
+                ctx.stroke();
+                // Price label
+                const price = maxP - (totalRange * i) / 4;
+                ctx.fillStyle = '#64748b';
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'left';
+                ctx.fillText(price.toFixed(2), W - padding.right + 5, y + 4);
+            }
+
+            // Draw candles
+            data.forEach((d, i) => {
+                const open = parseFloat(d.open), close = parseFloat(d.close);
+                const high = parseFloat(d.high), low = parseFloat(d.low);
+                const x = padding.left + barW * i + barW / 2;
+                const isUp = close >= open;
+
+                // Wick
+                const yHigh = padding.top + ((maxP - high) / totalRange) * chartH;
+                const yLow = padding.top + ((maxP - low) / totalRange) * chartH;
+                ctx.strokeStyle = isUp ? '#22c55e' : '#ef4444';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x, yHigh);
+                ctx.lineTo(x, yLow);
+                ctx.stroke();
+
+                // Body
+                const yOpen = padding.top + ((maxP - open) / totalRange) * chartH;
+                const yClose = padding.top + ((maxP - close) / totalRange) * chartH;
+                const bodyTop = Math.min(yOpen, yClose);
+                const bodyH = Math.max(Math.abs(yOpen - yClose), 1);
+                ctx.fillStyle = isUp ? '#22c55e' : '#ef4444';
+                if (isUp) {
+                    ctx.strokeStyle = '#22c55e';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x - bodyW / 2, bodyTop, bodyW, bodyH);
+                    // Hollow for up
+                    ctx.fillStyle = '#0f172a';
+                    ctx.fillRect(x - bodyW / 2 + 1, bodyTop + 1, bodyW - 2, bodyH - 2);
+                } else {
+                    ctx.fillStyle = '#ef4444';
+                    ctx.fillRect(x - bodyW / 2, bodyTop, bodyW, bodyH);
+                }
+
+                // Date label (show every N)
+                const step = Math.max(Math.ceil(data.length / 10), 1);
+                if (i % step === 0) {
+                    const dt = (d._datetime || '').substring(5, 10);
+                    ctx.fillStyle = '#64748b';
+                    ctx.font = '10px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(dt, x, H - padding.bottom + 16);
+                }
+            });
+
+            // Volume bar area
+            const volTop = H - padding.bottom + 28;
+            const volH = 40;
+            const volScale = maxVol || 1;
+            data.forEach((d, i) => {
+                const x = padding.left + barW * i + barW / 2;
+                const v = parseFloat(d.volume || 0);
+                const isUp = parseFloat(d.close) >= parseFloat(d.open);
+                const h = (v / volScale) * volH;
+                ctx.fillStyle = isUp ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)';
+                ctx.fillRect(x - bodyW / 2, volTop + volH - h, bodyW, h);
+            });
+        }
+
+        async function loadTick() {
+            const code = _detailCode;
+            const el = document.getElementById('tickTable');
+            showLoading(el);
+            const res = await apiRequest(`${API_BASE}/transaction/${code}`);
+            if (res.success && res.data && res.data.length > 0) {
+                let html = '<table><thead><tr><th>时间</th><th>价格</th><th>成交量(手)</th><th>方向</th></tr></thead><tbody>';
+                res.data.forEach(t => {
+                    const dirMap = {'0': '买', '1': '卖', '2': '中'};
+                    const dirLabel = dirMap[String(t.direction)] || '-';
+                    const dirClass = t.direction === 0 ? 'positive' : t.direction === 1 ? 'negative' : '';
+                    html += `<tr>
+                        <td>${t.time || '-'}</td>
+                        <td>${t.price || '-'}</td>
+                        <td>${t.vol || '-'}</td>
+                        <td class="${dirClass}">${dirLabel}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无逐笔成交数据（非交易时间或无数据）</p>';
+            }
+        }
+
+        // Close stock detail on overlay click
+        document.addEventListener('click', (e) => {
+            if (e.target.id === 'stockDetailModal') {
+                closeStockDetail();
+            }
         });
 
+        // ==================== Search History ====================
+        async function loadSearchHistory() {
+            const el = document.getElementById('historyTable');
+            showLoading(el);
+            const searchType = document.getElementById('historyType').value;
+            const keyword = document.getElementById('stockCode').value.trim();
+            let url = `${API_BASE}/search/history?limit=50`;
+            if (searchType) url += `&type=${searchType}`;
+            if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
+            const res = await apiRequest(url);
+            if (res.data && res.data.length > 0) {
+                const typeMap = {quote:'行情',valuation:'估值',research:'研报',disclosure:'公告',fundamental:'基础数据',signals:'信号'};
+                let html = '<table><thead><tr><th>关键词</th><th>类型</th><th>搜索时间</th><th>IP</th><th>评论</th><th>操作</th></tr></thead><tbody>';
+                res.data.forEach(item => {
+                    const commentBtn = `<button onclick="openCommentModal(${item.id},'${item.keyword}')" class="text-yellow-400 hover:text-yellow-300 text-sm" title="写评论">&#9998; 评论</button>`;
+                    html += `<tr>
+                        <td><a href="#" onclick="document.getElementById('stockCode').value='${item.keyword}';queryStock();return false;" class="text-blue-400 hover:underline">${item.keyword}</a> <a href="#" onclick="openStockDetail('${item.keyword}');return false;" class="text-xs text-slate-500 hover:text-slate-300">K线</a></td>
+                        <td><span class="badge badge-blue">${typeMap[item.search_type] || item.search_type}</span></td>
+                        <td>${(item.created_at || '').substring(0, 19)}</td>
+                        <td class="text-slate-500">${item.ip_address || '-'}</td>
+                        <td>${commentBtn}</td>
+                        <td><button onclick="deleteHistoryItem('${item.keyword}','${item.search_type}')" class="text-red-400 hover:text-red-300 text-sm">删除</button></td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无搜索历史</p>';
+            }
+            // Also load stats
+            loadSearchStats();
+        }
+
+        async function loadSearchStats() {
+            const el = document.getElementById('statsTable');
+            const res = await apiRequest(`${API_BASE}/search/stats`);
+            if (res.data && res.data.length > 0) {
+                const typeMap = {quote:'行情',valuation:'估值',research:'研报',disclosure:'公告',fundamental:'基础数据',signals:'信号'};
+                let html = '<table><thead><tr><th>关键词</th><th>类型</th><th>搜索次数</th><th>最近搜索</th></tr></thead><tbody>';
+                res.data.forEach(item => {
+                    html += `<tr>
+                        <td><a href="#" onclick="document.getElementById('stockCode').value='${item.keyword}';queryStock();return false;" class="text-blue-400 hover:underline">${item.keyword}</a> <a href="#" onclick="openStockDetail('${item.keyword}');return false;" class="text-xs text-slate-500 hover:text-slate-300">K线</a></td>
+                        <td><span class="badge badge-blue">${typeMap[item.search_type] || item.search_type}</span></td>
+                        <td class="font-bold">${item.search_count}</td>
+                        <td>${(item.last_searched || '').substring(0, 16)}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无统计数据</p>';
+            }
+        }
+
+        async function deleteHistoryItem(keyword, type) {
+            const res = await fetch(`${API_BASE}/search/delete`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({keyword, type})
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`已删除 ${json.data.deleted} 条记录`);
+                loadSearchHistory();
+            } else {
+                showToast('删除失败', false);
+            }
+        }
+
+        async function clearAllHistory() {
+            if (!confirm('确定清空所有搜索历史？')) return;
+            const res = await fetch(`${API_BASE}/search/delete`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`已清空 ${json.data.deleted} 条记录`);
+                loadSearchHistory();
+            } else {
+                showToast('清空失败', false);
+            }
+        }
+
+        // ==================== Comments ====================
+        let _commentSearchId = null;
+        let _commentKeyword = '';
+        let _selectedRating = 0;
+
+        const ratingLabels = ['', '很差', '较差', '一般', '不错', '很好'];
+
+        function openCommentModal(searchId, keyword) {
+            _commentSearchId = searchId;
+            _commentKeyword = keyword;
+            _selectedRating = 0;
+            document.getElementById('commentModalTitle').textContent = `评论: ${keyword}`;
+            document.getElementById('commentContent').value = '';
+            document.getElementById('ratingText').textContent = '';
+            updateStarDisplay(0);
+            document.getElementById('commentModal').classList.remove('hidden');
+            loadCommentsForSearch(searchId);
+        }
+
+        function closeCommentModal() {
+            document.getElementById('commentModal').classList.add('hidden');
+        }
+
+        // Star rating interaction
+        document.querySelectorAll('#starRating .star').forEach(star => {
+            star.addEventListener('mouseenter', () => {
+                updateStarDisplay(parseInt(star.dataset.val));
+            });
+            star.addEventListener('mouseleave', () => {
+                updateStarDisplay(_selectedRating);
+            });
+            star.addEventListener('click', () => {
+                _selectedRating = parseInt(star.dataset.val);
+                updateStarDisplay(_selectedRating);
+                document.getElementById('ratingText').textContent = ratingLabels[_selectedRating];
+            });
+        });
+
+        function updateStarDisplay(val) {
+            document.querySelectorAll('#starRating .star').forEach(s => {
+                s.classList.toggle('active', parseInt(s.dataset.val) <= val);
+            });
+        }
+
+        async function submitComment() {
+            const content = document.getElementById('commentContent').value.trim();
+            if (!content) {
+                showToast('请输入评论内容', false);
+                return;
+            }
+            const res = await fetch(`${API_BASE}/search/comment`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    search_id: _commentSearchId,
+                    keyword: _commentKeyword,
+                    content: content,
+                    rating: _selectedRating || null
+                })
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast('评论已保存');
+                document.getElementById('commentContent').value = '';
+                _selectedRating = 0;
+                updateStarDisplay(0);
+                document.getElementById('ratingText').textContent = '';
+                loadCommentsForSearch(_commentSearchId);
+            } else {
+                showToast(json.message || '评论失败', false);
+            }
+        }
+
+        async function loadCommentsForSearch(searchId) {
+            const el = document.getElementById('commentList');
+            const res = await apiRequest(`${API_BASE}/search/comments?search_id=${searchId}&limit=20`);
+            if (res.data && res.data.length > 0) {
+                let html = '<h4 class="text-sm font-semibold mb-2 text-slate-300">已有评论</h4>';
+                res.data.forEach(c => {
+                    const stars = c.rating ? '★'.repeat(c.rating) + '☆'.repeat(5 - c.rating) : '';
+                    const time = (c.created_at || '').substring(0, 16);
+                    html += `<div class="comment-item">
+                        <div>${stars ? `<span class="text-yellow-400">${stars}</span> ` : ''}${escapeHtml(c.content)}</div>
+                        <div class="comment-meta">${time} · ${c.ip_address || ''}</div>
+                        <div class="comment-actions">
+                            <button onclick="deleteCommentItem(${c.id})" class="text-red-400 hover:text-red-300">删除</button>
+                        </div>
+                    </div>`;
+                });
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-sm text-slate-500">暂无评论</p>';
+            }
+        }
+
+        async function deleteCommentItem(commentId) {
+            if (!confirm('确定删除该评论？')) return;
+            const res = await fetch(`${API_BASE}/search/comment`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ comment_id: commentId })
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast('评论已删除');
+                loadCommentsForSearch(_commentSearchId);
+                loadMyComments();
+            } else {
+                showToast('删除失败', false);
+            }
+        }
+
+        function escapeHtml(text) {
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+
+        async function loadMyComments() {
+            const el = document.getElementById('myCommentsTable');
+            showLoading(el);
+            const res = await apiRequest(`${API_BASE}/search/comments?limit=50`);
+            if (res.data && res.data.length > 0) {
+                const typeMap = {quote:'行情',valuation:'估值',research:'研报',disclosure:'公告',fundamental:'基础数据',signals:'信号'};
+                let html = '<table><thead><tr><th>关键词</th><th>类型</th><th>评分</th><th>评论</th><th>时间</th><th>操作</th></tr></thead><tbody>';
+                res.data.forEach(c => {
+                    const stars = c.rating ? '<span class="text-yellow-400">' + '★'.repeat(c.rating) + '☆'.repeat(5 - c.rating) + '</span>' : '-';
+                    const typeLabel = typeMap[c.search_type] || c.search_type || '-';
+                    html += `<tr>
+                        <td><a href="#" onclick="document.getElementById('stockCode').value='${c.keyword}';queryStock();return false;" class="text-blue-400 hover:underline">${c.keyword}</a></td>
+                        <td><span class="badge badge-blue">${typeLabel}</span></td>
+                        <td>${stars}</td>
+                        <td class="max-w-xs truncate">${escapeHtml(c.content)}</td>
+                        <td class="whitespace-nowrap">${(c.created_at || '').substring(0, 16)}</td>
+                        <td><button onclick="deleteCommentGlobal(${c.id})" class="text-red-400 hover:text-red-300 text-sm">删除</button></td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无评论</p>';
+            }
+        }
+
+        async function deleteCommentGlobal(commentId) {
+            if (!confirm('确定删除该评论？')) return;
+            const res = await fetch(`${API_BASE}/search/comment`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ comment_id: commentId })
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast('评论已删除');
+                loadMyComments();
+            } else {
+                showToast('删除失败', false);
+            }
+        }
+
+        // Enter key for stock query
+        document.getElementById('stockCode').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                queryStock();
+                document.getElementById('searchSuggestions').classList.add('hidden');
+            }
+        });
+
+        // Search suggestions on focus/input
+        let suggestTimer = null;
+        document.getElementById('stockCode').addEventListener('focus', () => {
+            loadSearchSuggestions();
+        });
+        document.getElementById('stockCode').addEventListener('input', () => {
+            clearTimeout(suggestTimer);
+            suggestTimer = setTimeout(loadSearchSuggestions, 300);
+        });
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#stockCode') && !e.target.closest('#searchSuggestions')) {
+                document.getElementById('searchSuggestions').classList.add('hidden');
+            }
+            // Close comment modal on overlay click
+            if (e.target.id === 'commentModal') {
+                closeCommentModal();
+            }
+            if (e.target.id === 'authModal') {
+                closeAuthModal();
+            }
+            if (e.target.id === 'noteModal') {
+                closeNoteModal();
+            }
+        });
+
+        async function loadSearchSuggestions() {
+            const keyword = document.getElementById('stockCode').value.trim();
+            const el = document.getElementById('searchSuggestions');
+            try {
+                const url = keyword
+                    ? `${API_BASE}/search/history?keyword=${encodeURIComponent(keyword)}&limit=8`
+                    : `${API_BASE}/search/recent?limit=8`;
+                const res = await apiRequest(url);
+                if (res.data && res.data.length > 0) {
+                    let html = '';
+                    res.data.forEach(item => {
+                        const kw = item.keyword;
+                        const type = item.search_type;
+                        const time = (item.last_searched || item.created_at || '').substring(0, 16);
+                        const typeMap = {quote:'行情',valuation:'估值',research:'研报',disclosure:'公告',fundamental:'基础数据',signals:'信号'};
+                        const typeLabel = typeMap[type] || type;
+                        html += `<div class="px-4 py-2 hover:bg-slate-700 cursor-pointer flex justify-between items-center" 
+                                    onclick="document.getElementById('stockCode').value='${kw}';queryStock();document.getElementById('searchSuggestions').classList.add('hidden')">
+                                    <span><span class="text-blue-400">${kw}</span> <span class="badge badge-blue ml-2">${typeLabel}</span></span>
+                                    <span class="text-xs text-slate-500">${time}</span>
+                                 </div>`;
+                    });
+                    el.innerHTML = html;
+                    el.classList.remove('hidden');
+                } else {
+                    el.classList.add('hidden');
+                }
+            } catch (e) {
+                el.classList.add('hidden');
+            }
+        }
+
+        // ==================== Auth ====================
+        let _authMode = 'login'; // 'login' | 'register'
+        let _currentUser = null;
+
+        function openAuthModal(mode) {
+            _authMode = mode || 'login';
+            updateAuthUI();
+            document.getElementById('authPhone').value = '';
+            document.getElementById('authCode').value = '';
+            document.getElementById('authNickname').value = '';
+            document.getElementById('authModal').classList.remove('hidden');
+        }
+
+        function closeAuthModal() {
+            document.getElementById('authModal').classList.add('hidden');
+        }
+
+        function switchAuthMode() {
+            _authMode = _authMode === 'login' ? 'register' : 'login';
+            updateAuthUI();
+        }
+
+        function updateAuthUI() {
+            const isLogin = _authMode === 'login';
+            document.getElementById('authModalTitle').textContent = isLogin ? '登录' : '注册';
+            document.getElementById('authSubmitBtn').textContent = isLogin ? '登录' : '注册';
+            document.getElementById('authNicknameRow').style.display = isLogin ? 'none' : 'block';
+            document.getElementById('authSwitchText').textContent = isLogin ? '没有账号？' : '已有账号？';
+            document.getElementById('authSwitchLink').textContent = isLogin ? '去注册' : '去登录';
+        }
+
+        let _codeCountdown = 0;
+        async function sendSmsCode() {
+            const phone = document.getElementById('authPhone').value.trim();
+            if (!phone || phone.length !== 11) {
+                showToast('请输入正确的11位手机号', false);
+                return;
+            }
+            const res = await fetch(`${API_BASE}/auth/send_code`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({phone})
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast('验证码已发送');
+                _codeCountdown = 60;
+                const btn = document.getElementById('sendCodeBtn');
+                btn.disabled = true;
+                const timer = setInterval(() => {
+                    _codeCountdown--;
+                    btn.textContent = `${_codeCountdown}s`;
+                    if (_codeCountdown <= 0) {
+                        clearInterval(timer);
+                        btn.textContent = '发送验证码';
+                        btn.disabled = false;
+                    }
+                }, 1000);
+            } else {
+                showToast(json.message || '发送失败', false);
+            }
+        }
+
+        async function submitAuth() {
+            const phone = document.getElementById('authPhone').value.trim();
+            const code = document.getElementById('authCode').value.trim();
+            const nickname = document.getElementById('authNickname').value.trim();
+            if (!phone || phone.length !== 11) {
+                showToast('请输入正确的11位手机号', false);
+                return;
+            }
+            if (!code) {
+                showToast('请输入验证码', false);
+                return;
+            }
+            const endpoint = _authMode === 'login' ? '/auth/login' : '/auth/register';
+            const body = _authMode === 'register' ? {phone, code, nickname} : {phone, code};
+            const res = await fetch(`${API_BASE}${endpoint}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(json.message);
+                closeAuthModal();
+                checkLogin();
+            } else {
+                showToast(json.message || '操作失败', false);
+            }
+        }
+
+        async function doLogout() {
+            await fetch(`${API_BASE}/auth/logout`, {method: 'POST'});
+            _currentUser = null;
+            updateUserArea();
+            showToast('已退出登录');
+        }
+
+        async function checkLogin() {
+            const res = await apiRequest(`${API_BASE}/auth/me`);
+            if (res.success && res.data) {
+                _currentUser = res.data;
+            } else {
+                _currentUser = null;
+            }
+            updateUserArea();
+        }
+
+        function updateUserArea() {
+            const el = document.getElementById('userArea');
+            if (_currentUser) {
+                el.innerHTML = `<span class="text-sm text-slate-300">${escapeHtml(_currentUser.nickname || _currentUser.phone)}</span>
+                    <button onclick="doLogout()" class="btn btn-secondary refresh-btn ml-2">退出</button>`;
+            } else {
+                el.innerHTML = `<button onclick="openAuthModal('login')" class="btn btn-primary refresh-btn">登录</button>`;
+            }
+        }
+
+        // ==================== Notes ====================
+        let _editingNoteId = null;
+
+        function openNoteModal(noteId, note) {
+            _editingNoteId = noteId || null;
+            document.getElementById('noteModalTitle').textContent = noteId ? '编辑笔记' : '新建笔记';
+            document.getElementById('noteKeyword').value = note ? (note.keyword || '') : '';
+            document.getElementById('noteTitle').value = note ? (note.title || '') : '';
+            document.getElementById('noteContent').value = note ? (note.content || '') : '';
+            document.getElementById('noteTags').value = note ? (note.tags || '') : '';
+            document.getElementById('noteModal').classList.remove('hidden');
+        }
+
+        function closeNoteModal() {
+            document.getElementById('noteModal').classList.add('hidden');
+        }
+
+        async function loadNotes() {
+            const el = document.getElementById('notesList');
+            if (!_currentUser) {
+                el.innerHTML = '<p class="text-slate-400">请先登录后查看笔记</p>';
+                return;
+            }
+            showLoading(el);
+            const keyword = document.getElementById('noteSearchKeyword').value.trim();
+            let url = `${API_BASE}/notes?limit=50`;
+            if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
+            const res = await apiRequest(url);
+            if (res.success && res.data && res.data.length > 0) {
+                let html = '<div class="space-y-3">';
+                res.data.forEach(n => {
+                    const tags = n.tags ? n.tags.split(',').map(t => `<span class="badge badge-blue">${escapeHtml(t.trim())}</span>`).join(' ') : '';
+                    const time = (n.updated_at || n.created_at || '').substring(0, 16);
+                    html += `<div class="bg-slate-800 rounded-lg p-4">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <h4 class="font-semibold text-white">${escapeHtml(n.title)}</h4>
+                                ${n.keyword ? `<span class="text-xs text-blue-400 mr-2">${n.keyword}</span>` : ''}
+                                ${tags}
+                            </div>
+                            <div class="flex gap-2 shrink-0">
+                                <button onclick='editNote(${n.id})' class="text-yellow-400 hover:text-yellow-300 text-sm">编辑</button>
+                                <button onclick='deleteNoteItem(${n.id})' class="text-red-400 hover:text-red-300 text-sm">删除</button>
+                            </div>
+                        </div>
+                        <p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(n.content)}</p>
+                        <div class="text-xs text-slate-500 mt-2">${time}</div>
+                    </div>`;
+                });
+                html += '</div>';
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无笔记，点击"新建笔记"开始记录</p>';
+            }
+        }
+
+        async function editNote(noteId) {
+            const res = await apiRequest(`${API_BASE}/notes/${noteId}`);
+            if (res.success && res.data) {
+                openNoteModal(noteId, res.data);
+            } else {
+                showToast('获取笔记失败', false);
+            }
+        }
+
+        async function deleteNoteItem(noteId) {
+            if (!confirm('确定删除该笔记？')) return;
+            const res = await fetch(`${API_BASE}/notes`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({note_id: noteId})
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast('笔记已删除');
+                loadNotes();
+            } else {
+                showToast(json.message || '删除失败', false);
+            }
+        }
+
+        async function submitNote() {
+            const keyword = document.getElementById('noteKeyword').value.trim();
+            const title = document.getElementById('noteTitle').value.trim();
+            const content = document.getElementById('noteContent').value.trim();
+            const tags = document.getElementById('noteTags').value.trim();
+            if (!title || !content) {
+                showToast('标题和内容不能为空', false);
+                return;
+            }
+            let res;
+            if (_editingNoteId) {
+                res = await fetch(`${API_BASE}/notes`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({note_id: _editingNoteId, keyword, title, content, tags})
+                });
+            } else {
+                res = await fetch(`${API_BASE}/notes`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({keyword, title, content, tags})
+                });
+            }
+            const json = await res.json();
+            if (json.success) {
+                showToast(_editingNoteId ? '笔记已更新' : '笔记已保存');
+                closeNoteModal();
+                loadNotes();
+            } else {
+                showToast(json.message || '保存失败', false);
+            }
+        }
+
         // Initial load
+        checkLogin();
         switchTab('signals');
     </script>
 </body>

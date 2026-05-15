@@ -34,8 +34,11 @@ services:
       - FEIFAN_DB_USER=root
       - FEIFAN_DB_PASSWORD=feifan2024
       - FEIFAN_DB_NAME=feifan_stock
+      - PYTHONPATH=/app/src
     volumes:
       - ./cache:/app/cache
+      - ./src/feifan_stock_data:/app/src/feifan_stock_data
+      - mootdx_cache:/.mootdx
     restart: unless-stopped
     depends_on:
       mysql:
@@ -49,3 +52,4 @@ services:
 
 volumes:
   mysql_data:
+  mootdx_cache:
