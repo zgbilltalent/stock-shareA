@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "a-stock-data"
+version = "2.1.0"
+description = "A股全栈数据工具包 — 覆盖行情、研报、信号、新闻、基础数据、公告六层数据源"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Simon Lin", email = "simonlin@example.com"}
+]
+keywords = ["stock", "a-stock", "finance", "china", "market-data", "investment"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "mootdx>=0.10",
+    "akshare>=1.10",
+    "requests>=2.28.0",
+    "pandas>=1.5.0",
+    "stockstats>=0.3.2",
+]
+
+[project.optional-dependencies]
+web = [
+    "flask>=3.0.0",
+    "flask-cors>=4.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/simonlin1212/a-stock-data"
+Documentation = "https://github.com/simonlin1212/a-stock-data#readme"
+Repository = "https://github.com/simonlin1212/a-stock-data"
+Issues = "https://github.com/simonlin1212/a-stock-data/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
