@@ -140,3 +140,51 @@ def individual_info(symbol: str) -> pd.DataFrame:
     """
     code = normalize_code(symbol)
     return ak.stock_individual_info_em(symbol=code)
+
+
+def _df_item_value_to_dict(df: pd.DataFrame) -> dict:
+    """akshare item/value 两列 DataFrame → dict"""
+    if df is None or df.empty:
+        return {}
+    cols = {c.lower(): c for c in df.columns}
+    item_col = cols.get("item") or cols.get("项目")
+    val_col = cols.get("value") or cols.get("值")
+    if item_col and val_col:
+        return {
+            str(row[item_col]): row[val_col]
+            for _, row in df.iterrows()
+        }
+    return df.iloc[0].to_dict() if len(df) else {}
+
+
+def get_stock_info(symbol: str) -> dict:
+    """个股基本信息（东财 item/value 格式）"""
+    try:
+        return _df_item_value_to_dict(individual_info(symbol))
+    except Exception:
+        return {}
+
+
+def get_financial_indicators(symbol: str) -> dict:
+    """季报财务快照（mootdx 37 字段）"""
+    try:
+        df = finance_snapshot(symbol)
+        if df is None or (isinstance(df, pd.DataFrame) and df.empty):
+            return {}
+        if isinstance(df, pd.DataFrame):
+            return df.iloc[-1].to_dict() if len(df) else {}
+        return dict(df) if df else {}
+    except Exception:
+        return {}
+
+
+def main_index(symbol: str) -> dict:
+    """主要财务指标摘要"""
+    snap = get_financial_indicators(symbol)
+    if not snap:
+        return {}
+    keys = (
+        "eps", "roe", "profit", "income", "bvps",
+        "meigujingzichan", "liutongguben", "zongguben",
+    )
+    return {k: snap[k] for k in keys if k in snap and snap[k] is not None}

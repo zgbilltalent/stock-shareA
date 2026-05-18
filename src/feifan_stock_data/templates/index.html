@@ -225,6 +225,57 @@
         }
         .comment-item .comment-meta { font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; }
         .comment-item .comment-actions { font-size: 0.75rem; margin-top: 0.5rem; }
+
+        .stat-hint {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 0.35rem;
+            line-height: 1.35;
+        }
+        .val-glossary {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-top: 1rem;
+            border: 1px solid #475569;
+        }
+        .val-glossary h4 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+        }
+        .val-glossary dl { margin: 0; }
+        .val-glossary dt {
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            margin-top: 0.65rem;
+        }
+        .val-glossary dt:first-child { margin-top: 0; }
+        .val-glossary dd {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin: 0.25rem 0 0 0;
+            line-height: 1.5;
+        }
+        .val-glossary table {
+            width: 100%;
+            margin-top: 0.75rem;
+            font-size: 0.75rem;
+        }
+        .val-glossary th, .val-glossary td {
+            padding: 0.35rem 0.5rem;
+            border-bottom: 1px solid #334155;
+        }
+        .val-glossary th { color: var(--text-secondary); font-weight: 500; }
+        details.val-glossary summary {
+            cursor: pointer;
+            font-size: 0.875rem;
+            color: var(--accent-blue);
+            user-select: none;
+        }
+        details.val-glossary summary:hover { text-decoration: underline; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -262,7 +313,33 @@
                 <button onclick="queryResearch()" class="btn btn-secondary">个股研报</button>
                 <button onclick="queryDisclosure()" class="btn btn-secondary">公司公告</button>
                 <button onclick="queryFundamental()" class="btn btn-secondary">基础数据</button>
+                <button onclick="queryConcept()" class="btn btn-secondary">概念板块</button>
+                <button onclick="queryFundFlow()" class="btn btn-secondary">资金流向</button>
+                <button onclick="queryStockLhb()" class="btn btn-secondary">个股龙虎榜</button>
+                <button onclick="queryStockLockup()" class="btn btn-secondary">解禁预警</button>
             </div>
+            <details class="val-glossary mt-4">
+                <summary>估值指标说明（PE / PEG / 消化 / 覆盖）</summary>
+                <dl>
+                    <dt>前向 PE（摘要 PE=110x）</dt>
+                    <dd>股价 ÷ 机构预测的今年每股收益。比 PE(TTM) 更看未来一年盈利；越高通常越贵。</dd>
+                    <dt>PEG（如 6.6）</dt>
+                    <dd>前向 PE ÷ EPS 年增速(%)。&lt;1 偏便宜，1～1.5 合理，&gt;1.5 偏贵。</dd>
+                    <dt>PE 消化（如 8.4年）</dt>
+                    <dd>按预测增速，约多少年 PE 可降到 30 倍。&lt;2 年较可接受，&gt;4 年偏贵。</dd>
+                    <dt>机构覆盖（如 1家）</dt>
+                    <dd>给出 EPS 预测的机构家数。≥3 家较可靠；仅 1～2 家时数字参考价值有限。</dd>
+                </dl>
+                <table>
+                    <thead><tr><th>指标</th><th>参考</th><th>含义</th></tr></thead>
+                    <tbody>
+                        <tr><td>PEG</td><td>&lt;1 / 1～1.5 / &gt;1.5</td><td>便宜 / 合理 / 偏贵</td></tr>
+                        <tr><td>消化</td><td>&lt;2年 / &gt;4年</td><td>可接受 / 偏贵</td></tr>
+                        <tr><td>覆盖</td><td>≥3家</td><td>预测更稳</td></tr>
+                    </tbody>
+                </table>
+                <p class="stat-hint mt-3 mb-0">示例：PE=110x · PEG=6.6 · 消化=8.4年 · 覆盖=1家 → 估值高、增速配不上、消化慢、样本少。</p>
+            </details>
             <div id="stockResult" class="mt-4"></div>
         </div>
 
@@ -274,6 +351,7 @@
             <button class="tab-btn" data-tab="industry">行业对比</button>
             <button class="tab-btn" data-tab="northbound">北向资金</button>
             <button class="tab-btn" data-tab="lhb">龙虎榜</button>
+            <button class="tab-btn" data-tab="unlock">解禁日历</button>
             <button class="tab-btn" data-tab="news">市场快讯</button>
             <button class="tab-btn" data-tab="history">搜索历史</button>
             <button class="tab-btn" data-tab="notes">我的笔记</button>
@@ -308,6 +386,7 @@
                 <button onclick="switchTab('industry')" class="btn btn-secondary">行业对比</button>
                 <button onclick="switchTab('northbound')" class="btn btn-secondary">北向资金</button>
                 <button onclick="switchTab('lhb')" class="btn btn-secondary">龙虎榜</button>
+                <button onclick="switchTab('unlock')" class="btn btn-secondary">解禁日历</button>
                 <button onclick="switchTab('news')" class="btn btn-secondary">市场快讯</button>
             </div>
         </div>
@@ -353,6 +432,8 @@
                     <button onclick="loadNorthbound()" class="btn btn-secondary refresh-btn">刷新</button>
                 </div>
                 <div id="northboundContent"></div>
+                <canvas id="northboundChart" class="mt-4" style="max-height:280px;width:100%"></canvas>
+                <div id="northboundHistory" class="mt-4 table-container"></div>
             </div>
         </div>
 
@@ -364,6 +445,17 @@
                     <button onclick="loadDragonTiger()" class="btn btn-secondary refresh-btn">刷新</button>
                 </div>
                 <div id="lhbTable" class="table-container"></div>
+            </div>
+        </div>
+
+        <!-- Unlock Calendar -->
+        <div id="tab-unlock" class="tab-content hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">限售解禁日历</h2>
+                    <button onclick="loadUnlock()" class="btn btn-secondary refresh-btn">刷新</button>
+                </div>
+                <div id="unlockTable" class="table-container"></div>
             </div>
         </div>
 
@@ -525,6 +617,7 @@
                 <div style="padding:0.5rem 1.5rem;display:flex;gap:0.5rem;border-bottom:1px solid #334155">
                     <button class="tab-btn active" data-detail-tab="kline" onclick="switchDetailTab('kline')">K线图</button>
                     <button class="tab-btn" data-detail-tab="tick" onclick="switchDetailTab('tick')">逐笔成交</button>
+                    <button class="tab-btn" data-detail-tab="fundflow" onclick="switchDetailTab('fundflow')">资金流向</button>
                     <select id="klineCategory" class="input" style="width:auto;margin-left:auto" onchange="loadKline()">
                         <option value="4">日K</option>
                         <option value="5">周K</option>
@@ -544,6 +637,10 @@
                     <div id="detailTick" class="hidden">
                         <div id="tickTable" class="table-container" style="max-height:500px;overflow-y:auto"></div>
                     </div>
+                    <div id="detailFundflow" class="hidden">
+                        <canvas id="fundFlowChart" style="max-height:260px;width:100%"></canvas>
+                        <div id="fundFlowTable" class="table-container mt-4"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -551,7 +648,7 @@
 
     <!-- Footer -->
     <footer class="text-center py-6 text-slate-500 text-sm">
-        <p>A股全栈数据工具包 | 数据来源：腾讯财经、同花顺、东方财富、akshare</p>
+        <p>A股全栈数据工具包 | 数据来源：腾讯财经、同花顺、东方财富、百度股市通、akshare</p>
     </footer>
 
     <script>
@@ -596,6 +693,32 @@
             el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
         }
 
+        function getValuationGlossaryHtml() {
+            return `<div class="val-glossary">
+                <h4>估值指标说明</h4>
+                <dl>
+                    <dt>前向 PE（摘要里 PE=110x）</dt>
+                    <dd>股价 ÷ 机构预测的今年每股收益。比 PE(TTM) 更看未来一年盈利；越高通常越贵。</dd>
+                    <dt>PEG（如 PEG=6.6）</dt>
+                    <dd>前向 PE ÷ EPS 年增速(%)。&lt;1 偏便宜，1～1.5 合理，&gt;1.5 偏贵。</dd>
+                    <dt>PE 消化年限（如 消化=8.4年）</dt>
+                    <dd>按预测增速，约多少年 PE 可降到 30 倍锚点。&lt;2 年较可接受，&gt;4 年偏贵。</dd>
+                    <dt>机构覆盖（如 覆盖=1家）</dt>
+                    <dd>给出 EPS 预测的机构家数。≥3 家较可靠；仅 1～2 家时预测参考价值有限。</dd>
+                </dl>
+                <table>
+                    <thead><tr><th>指标</th><th>参考区间</th><th>含义</th></tr></thead>
+                    <tbody>
+                        <tr><td>PEG</td><td>&lt;1 / 1～1.5 / &gt;1.5</td><td>便宜 / 合理 / 偏贵</td></tr>
+                        <tr><td>消化年限</td><td>&lt;2年 / 2～4年 / &gt;4年</td><td>可接受 / 偏贵 / 很贵</td></tr>
+                        <tr><td>机构覆盖</td><td>≥3家</td><td>预测更稳</td></tr>
+                    </tbody>
+                </table>
+                <p class="stat-hint mt-3 mb-0">示例：PE=110x · PEG=6.6 · 消化=8.4年 · 覆盖=1家 → 估值高、相对增速偏贵、消化慢、预测样本少。仅供参考，不构成投资建议。</p>
+            </div>`;
+        }
+
+
         // Format number with color
         function formatChange(val) {
             if (val === null || val === undefined) return '-';
@@ -627,6 +750,7 @@
                     case 'industry': loadIndustry(); break;
                     case 'northbound': loadNorthbound(); break;
                     case 'lhb': loadDragonTiger(); break;
+                    case 'unlock': loadUnlock(); break;
                     case 'news': loadNews(); break;
                     case 'history': loadSearchHistory(); loadMyComments(); break;
                     case 'notes': loadNotes(); break;
@@ -707,16 +831,24 @@
             const res = await apiRequest(`${API_BASE}/valuation/${code}`);
             if (res.success && res.data) {
                 const d = res.data;
-                let html = '<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">';
-                if (d.forward_pe) html += `<div class="stat-card"><div class="stat-label">前向PE</div><div class="stat-value">${d.forward_pe.toFixed(2)}</div></div>`;
-                if (d.peg) html += `<div class="stat-card"><div class="stat-label">PEG</div><div class="stat-value">${d.peg.toFixed(2)}</div></div>`;
-                if (d.pe_digest_years) html += `<div class="stat-card"><div class="stat-label">PE消化年限</div><div class="stat-value">${d.pe_digest_years.toFixed(1)}年</div></div>`;
-                if (d.market_cap_yi) html += `<div class="stat-card"><div class="stat-label">市值(亿)</div><div class="stat-value">${d.market_cap_yi.toFixed(0)}</div></div>`;
+                let html = `<p class="text-lg font-bold text-blue-400 mb-3">${escapeHtml(d.name || '')}(${code})</p>`;
+                html += '<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">';
+                if (d.pe_fwd != null) html += `<div class="stat-card"><div class="stat-label">前向PE</div><div class="stat-value">${d.pe_fwd}x</div><div class="stat-hint">股价÷今年预测EPS</div></div>`;
+                if (d.peg != null) html += `<div class="stat-card"><div class="stat-label">PEG</div><div class="stat-value">${d.peg}</div><div class="stat-hint">&lt;1便宜 · 1～1.5合理 · &gt;1.5偏贵</div></div>`;
+                if (d.digest_years != null) html += `<div class="stat-card"><div class="stat-label">PE消化</div><div class="stat-value">${d.digest_years}年</div><div class="stat-hint">降至30倍PE约需年数</div></div>`;
+                if (d.mcap_yi != null) html += `<div class="stat-card"><div class="stat-label">市值(亿)</div><div class="stat-value">${d.mcap_yi}</div></div>`;
+                if (d.pe_ttm != null) html += `<div class="stat-card"><div class="stat-label">PE(TTM)</div><div class="stat-value">${d.pe_ttm}x</div><div class="stat-hint">过去12个月盈利</div></div>`;
+                if (d.cagr_pct != null) html += `<div class="stat-card"><div class="stat-label">EPS增速</div><div class="stat-value">${d.cagr_pct}%</div><div class="stat-hint">明年相对今年预测增速</div></div>`;
+                if (d.analyst_count) {
+                    const covHint = d.analyst_count < 3 ? '样本少，谨慎参考' : '预测较有参考价值';
+                    html += `<div class="stat-card"><div class="stat-label">机构覆盖</div><div class="stat-value">${d.analyst_count}家</div><div class="stat-hint">${covHint}</div></div>`;
+                }
                 html += '</div>';
                 
                 if (d.summary) {
-                    html += `<div class="bg-slate-800 rounded-lg p-4"><pre class="text-sm text-slate-300 whitespace-pre-wrap">${d.summary}</pre></div>`;
+                    html += `<div class="bg-slate-800 rounded-lg p-4 mb-2"><pre class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(d.summary)}</pre></div>`;
                 }
+                html += getValuationGlossaryHtml();
                 el.innerHTML = html;
             } else {
                 el.innerHTML = '<p class="text-slate-400">暂无估值数据</p>';
@@ -805,6 +937,166 @@
             }
         }
 
+        function getStockCodeOrToast() {
+            const code = document.getElementById('stockCode').value.trim();
+            if (!code) {
+                showToast('请输入股票代码', false);
+                return null;
+            }
+            return code;
+        }
+
+        function renderBlockTags(title, items) {
+            if (!items || !items.length) return '';
+            let html = `<div class="mb-3"><div class="text-sm text-slate-400 mb-1">${title}</div>`;
+            items.forEach(b => {
+                const pct = b.change_pct !== '' && b.change_pct != null ? ` ${b.change_pct}%` : '';
+                html += `<span class="badge badge-blue mr-1 mb-1">${escapeHtml(b.name || '')}${pct}</span>`;
+            });
+            html += '</div>';
+            return html;
+        }
+
+        async function queryConcept() {
+            const code = getStockCodeOrToast();
+            if (!code) return;
+            const el = document.getElementById('stockResult');
+            showLoading(el);
+            const res = await apiRequest(`${API_BASE}/signals/concept/${code}`);
+            if (res.success && res.data) {
+                const d = res.data;
+                let html = `<p class="text-lg font-bold text-blue-400 mb-3">概念板块 · ${code}</p>`;
+                html += renderBlockTags('行业', d.industry);
+                html += renderBlockTags('概念', d.concept);
+                html += renderBlockTags('地域', d.region);
+                if (!d.industry?.length && !d.concept?.length && !d.region?.length) {
+                    html += '<p class="text-slate-400">暂无板块数据</p>';
+                }
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无概念板块数据</p>';
+            }
+        }
+
+        async function queryFundFlow() {
+            const code = getStockCodeOrToast();
+            if (!code) return;
+            const el = document.getElementById('stockResult');
+            showLoading(el);
+            const res = await apiRequest(`${API_BASE}/signals/fund_flow/${code}?days=20`);
+            if (res.success && res.data?.history?.length) {
+                let html = `<p class="text-lg font-bold text-blue-400 mb-3">资金流向 · ${code}</p>`;
+                html += '<table><thead><tr><th>日期</th><th>收盘</th><th>涨跌%</th><th>主力净流入(万)</th><th>超大单(万)</th></tr></thead><tbody>';
+                res.data.history.slice(0, 15).forEach(h => {
+                    const main = parseFloat(h.mainIn) || 0;
+                    html += `<tr>
+                        <td>${h.date || '-'}</td>
+                        <td>${h.close || '-'}</td>
+                        <td>${formatChange(h.change_pct)}</td>
+                        <td class="${main >= 0 ? 'positive' : 'negative'}">${h.mainIn ?? '-'}</td>
+                        <td>${h.superNetIn ?? '-'}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无资金流向数据</p>';
+            }
+        }
+
+        async function queryStockLhb() {
+            const code = getStockCodeOrToast();
+            if (!code) return;
+            const el = document.getElementById('stockResult');
+            showLoading(el);
+            const res = await apiRequest(`${API_BASE}/signals/dragon_tiger/${code}`);
+            if (res.success && res.data) {
+                const d = res.data;
+                let html = `<p class="text-lg font-bold text-blue-400 mb-3">个股龙虎榜 · ${code}</p>`;
+                if (d.institution && Object.keys(d.institution).length) {
+                    const inst = d.institution;
+                    html += `<p class="text-sm text-slate-400 mb-2">机构: 买${inst.buy_count || 0} / 卖${inst.sell_count || 0}，净额 ${inst.net_amount ?? '-'}万</p>`;
+                }
+                if (d.records?.length) {
+                    html += '<table class="mb-4"><thead><tr><th>日期</th><th>解读</th><th>净买额</th></tr></thead><tbody>';
+                    d.records.slice(0, 10).forEach(r => {
+                        html += `<tr><td>${r.date || '-'}</td><td>${escapeHtml(r.reason || '-')}</td><td>${r.net_buy ?? '-'}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                } else {
+                    html += '<p class="text-slate-400 mb-2">近30日未上榜</p>';
+                }
+                if (d.seats?.buy?.length) {
+                    html += '<h4 class="text-sm font-semibold mb-1">买入席位 TOP5</h4><table><thead><tr><th>营业部</th><th>买入(万)</th><th>净额(万)</th></tr></thead><tbody>';
+                    d.seats.buy.forEach(s => {
+                        html += `<tr><td class="max-w-xs truncate">${escapeHtml(s.name || '-')}</td><td>${s.buy_amt ?? '-'}</td><td>${s.net ?? '-'}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                }
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无龙虎榜数据</p>';
+            }
+        }
+
+        async function queryStockLockup() {
+            const code = getStockCodeOrToast();
+            if (!code) return;
+            const el = document.getElementById('stockResult');
+            showLoading(el);
+            const res = await apiRequest(`${API_BASE}/signals/lockup/${code}`);
+            if (res.success && res.data) {
+                const d = res.data;
+                let html = `<p class="text-lg font-bold text-blue-400 mb-3">解禁预警 · ${code}</p>`;
+                if (d.upcoming?.length) {
+                    html += `<p class="text-yellow-400 text-sm mb-2">未来90天待解禁 ${d.upcoming.length} 批</p>`;
+                    html += '<table class="mb-4"><thead><tr><th>日期</th><th>类型</th><th>数量</th><th>占流通股%</th></tr></thead><tbody>';
+                    d.upcoming.forEach(u => {
+                        html += `<tr><td>${u.date || '-'}</td><td>${escapeHtml(u.type || '-')}</td><td>${u.shares ?? '-'}</td><td>${u.float_ratio ?? '-'}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                } else {
+                    html += '<p class="text-green-400 text-sm mb-2">未来90天无待解禁</p>';
+                }
+                if (d.history?.length) {
+                    html += '<h4 class="text-sm font-semibold mb-1">历史解禁</h4><table><thead><tr><th>日期</th><th>类型</th><th>数量</th></tr></thead><tbody>';
+                    d.history.slice(0, 8).forEach(h => {
+                        html += `<tr><td>${h.date || '-'}</td><td>${escapeHtml(h.type || '-')}</td><td>${h.shares ?? '-'}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                }
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无解禁数据</p>';
+            }
+        }
+
+        let _northboundChart = null;
+        let _fundFlowChart = null;
+
+        async function loadUnlock() {
+            const el = document.getElementById('unlockTable');
+            showLoading(el);
+            const res = await apiRequest(`${API_BASE}/signals/unlock?limit=30`);
+            if (res.data && res.data.length > 0) {
+                let html = '<table><thead><tr><th>代码</th><th>名称</th><th>解禁日期</th><th>数量</th><th>类型</th></tr></thead><tbody>';
+                res.data.forEach(u => {
+                    const code = u['股票代码'] || u.code || '-';
+                    html += `<tr>
+                        <td><a href="#" onclick="document.getElementById('stockCode').value='${code}';queryStock();return false;" class="text-blue-400 hover:underline">${code}</a></td>
+                        <td>${u['股票简称'] || u.name || '-'}</td>
+                        <td>${u['解禁日期'] || u.date || '-'}</td>
+                        <td>${u['解禁数量_万股'] || u.shares || '-'}</td>
+                        <td class="max-w-xs truncate">${u['解禁股份类型'] || u.type || '-'}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = '<p class="text-slate-400">暂无解禁数据</p>';
+            }
+        }
+
         // ==================== Market Signals ====================
         async function loadQuickStats() {
             const [hot, topics, nb, lhb] = await Promise.all([
@@ -873,7 +1165,7 @@
             showLoading(el);
             const res = await apiRequest(`${API_BASE}/signals/industry?limit=50`);
             if (res.data && (res.data.top || res.data.bottom)) {
-                let html = '<table><thead><tr><th>排名</th><th>行业</th><th>涨跌幅</th><th>领涨股</th></tr></thead><tbody>';
+                let html = '<table><thead><tr><th>排名</th><th>行业</th><th>涨跌幅</th><th>成交额(亿)</th><th>净流入(亿)</th><th>领涨股</th></tr></thead><tbody>';
                 
                 // Combine and sort
                 const all = [...(res.data.top || []), ...(res.data.bottom || [])]
@@ -885,6 +1177,8 @@
                         <td>${i + 1}</td>
                         <td>${ind.name || '-'}</td>
                         <td>${formatChange(pct)}</td>
+                        <td>${ind.turnover_yi ?? '-'}</td>
+                        <td>${ind.net_inflow_yi != null ? ind.net_inflow_yi : '-'}</td>
                         <td>${ind.leader || '-'}</td>
                     </tr>`;
                 });
@@ -897,6 +1191,7 @@
 
         async function loadNorthbound() {
             const el = document.getElementById('northboundContent');
+            const histEl = document.getElementById('northboundHistory');
             showLoading(el);
             const res = await apiRequest(`${API_BASE}/signals/northbound`);
             if (res.data) {
@@ -904,7 +1199,6 @@
                 const total = d.total || 0;
                 const signal = d.signal_cn || '未知';
                 const signalClass = d.signal === 'bullish' ? 'badge-green' : d.signal === 'bearish' ? 'badge-red' : 'badge-blue';
-                
                 el.innerHTML = `
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                         <div class="stat-card">
@@ -923,13 +1217,54 @@
                             <div class="stat-label">信号</div>
                             <div class="stat-value"><span class="badge ${signalClass}">${signal}</span></div>
                         </div>
-                    </div>
-                `;
+                    </div>`;
+                drawNorthboundChart(d.intraday || []);
+                if (d.history?.length && histEl) {
+                    let h = '<table><thead><tr><th>日期</th><th>沪股通(亿)</th><th>深股通(亿)</th><th>合计(亿)</th></tr></thead><tbody>';
+                    d.history.slice().reverse().forEach(row => {
+                        h += `<tr><td>${row.date}</td><td>${row.hgt?.toFixed(2)}</td><td>${row.sgt?.toFixed(2)}</td><td class="${row.total >= 0 ? 'positive' : 'negative'}">${row.total?.toFixed(2)}</td></tr>`;
+                    });
+                    h += '</tbody></table>';
+                    histEl.innerHTML = h;
+                } else if (histEl) {
+                    histEl.innerHTML = '<p class="text-sm text-slate-500 mt-2">历史数据将随每日访问自动累积</p>';
+                }
             } else {
                 el.innerHTML = '<p class="text-slate-400">暂无数据</p>';
             }
         }
 
+        function drawNorthboundChart(intraday) {
+            const canvas = document.getElementById('northboundChart');
+            if (!canvas || !intraday.length) return;
+            const labels = intraday.map(p => p.time);
+            const totals = intraday.map(p => p.total_yi);
+            if (_northboundChart) _northboundChart.destroy();
+            _northboundChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: '北向合计(亿)',
+                        data: totals,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59,130,246,0.1)',
+                        fill: true,
+                        tension: 0.2,
+                        pointRadius: 0,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#94a3b8' } } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                    }
+                }
+            });
+        }
         async function loadDragonTiger() {
             const el = document.getElementById('lhbTable');
             showLoading(el);
@@ -980,6 +1315,7 @@
             window.industryLoaded = false;
             window.northboundLoaded = false;
             window.lhbLoaded = false;
+            window.unlockLoaded = false;
             window.newsLoaded = false;
             window.signalsLoaded = false;
             window.historyLoaded = false;
@@ -1008,8 +1344,58 @@
             document.querySelector(`[data-detail-tab="${tab}"]`).classList.add('active');
             document.getElementById('detailKline').classList.toggle('hidden', tab !== 'kline');
             document.getElementById('detailTick').classList.toggle('hidden', tab !== 'tick');
+            const ff = document.getElementById('detailFundflow');
+            if (ff) ff.classList.toggle('hidden', tab !== 'fundflow');
             if (tab === 'kline') loadKline();
             if (tab === 'tick') loadTick();
+            if (tab === 'fundflow') loadDetailFundFlow();
+        }
+
+
+        async function loadDetailFundFlow() {
+            const code = _detailCode;
+            const tableEl = document.getElementById('fundFlowTable');
+            if (!code || !tableEl) return;
+            showLoading(tableEl);
+            const res = await apiRequest(`${API_BASE}/signals/fund_flow/${code}?days=20`);
+            if (res.success && res.data?.history?.length) {
+                let html = '<table><thead><tr><th>日期</th><th>主力(万)</th><th>超大单(万)</th><th>涨跌%</th></tr></thead><tbody>';
+                res.data.history.slice(0, 12).forEach(h => {
+                    const main = parseFloat(h.mainIn) || 0;
+                    html += `<tr><td>${h.date}</td><td class="${main >= 0 ? 'positive' : 'negative'}">${h.mainIn ?? '-'}</td><td>${h.superNetIn ?? '-'}</td><td>${formatChange(h.change_pct)}</td></tr>`;
+                });
+                html += '</tbody></table>';
+                tableEl.innerHTML = html;
+                const canvas = document.getElementById('fundFlowChart');
+                if (canvas) {
+                    const rows = res.data.history.slice(0, 10).reverse();
+                    const labels = rows.map(r => r.date);
+                    const values = rows.map(r => parseFloat(r.mainIn) || 0);
+                    if (_fundFlowChart) _fundFlowChart.destroy();
+                    _fundFlowChart = new Chart(canvas, {
+                        type: 'bar',
+                        data: {
+                            labels,
+                            datasets: [{
+                                label: '主力净流入(万)',
+                                data: values,
+                                backgroundColor: values.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'),
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: { ticks: { color: '#64748b' }, grid: { display: false } },
+                                y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                            }
+                        }
+                    });
+                }
+            } else {
+                tableEl.innerHTML = '<p class="text-slate-400">暂无资金流向数据</p>';
+            }
         }
 
         async function loadKline() {

@@ -18,17 +18,72 @@ from .utils import get_prefix, normalize_code
 # HTTP 请求头
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
+# 通达信行情服务器备选（Docker 内 bestip 常无法选服，需显式指定）
+_DEFAULT_TDX_SERVERS = [
+    ("119.147.212.81", 7709),
+    ("114.80.63.12", 7709),
+    ("218.75.126.9", 7709),
+    ("124.74.236.94", 7709),
+]
+
+_mootdx_client_cache = None
+
+
+def _parse_tdx_server_env() -> tuple[str, int] | None:
+    """MOOTDX_SERVER=host:port 可选覆盖"""
+    import os
+
+    raw = os.environ.get("MOOTDX_SERVER", "").strip()
+    if not raw or ":" not in raw:
+        return None
+    host, _, port_s = raw.partition(":")
+    try:
+        return host.strip(), int(port_s.strip())
+    except ValueError:
+        return None
+
 
 def _mootdx_client():
     """
-    获取 mootdx Quotes 客户端实例
+    获取 mootdx Quotes 客户端实例（带连接缓存与备选服务器）
 
     Returns:
         mootdx.quotes.Quotes 实例
+
+    Raises:
+        RuntimeError: 所有服务器均不可达
     """
+    global _mootdx_client_cache
+    if _mootdx_client_cache is not None:
+        return _mootdx_client_cache
+
     from mootdx.quotes import Quotes
 
-    return Quotes.factory(market="std")
+    candidates: list[tuple | None] = []
+    env_server = _parse_tdx_server_env()
+    if env_server:
+        candidates.append(env_server)
+    candidates.append(None)  # 默认 bestip
+    candidates.extend(_DEFAULT_TDX_SERVERS)
+
+    last_err: Exception | None = None
+    for server in candidates:
+        try:
+            if server is None:
+                client = Quotes.factory(market="std")
+            else:
+                client = Quotes.factory(market="std", server=server)
+            _mootdx_client_cache = client
+            return client
+        except (ValueError, TypeError, OSError, TimeoutError) as e:
+            last_err = e
+            # Docker 内常见: not enough values to unpack (expected 2, got 0)
+            continue
+
+    raise RuntimeError(
+        "无法连接通达信行情服务器（mootdx）。"
+        "Docker/海外网络可设置环境变量 MOOTDX_SERVER=119.147.212.81:7709 后重启 web 容器。"
+    ) from last_err
 
 
 def klines(

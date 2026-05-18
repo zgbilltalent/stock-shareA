@@ -124,7 +124,14 @@ def api_kline(code):
         result = df[["_datetime"] + available].to_dict("records")
         return format_response(result)
     except Exception as e:
-        return format_response(None, False, str(e))
+        msg = str(e)
+        if "unpack" in msg or "通达信" in msg or "mootdx" in msg.lower():
+            msg = (
+                "K线服务暂不可用：无法连接通达信行情服务器。"
+                "若在 Docker 中运行，请在 docker-compose.yml 的 web 服务下添加 "
+                "MOOTDX_SERVER=119.147.212.81:7709 后执行 docker compose restart web"
+            )
+        return format_response(None, False, msg)
 
 
 @app.route('/api/transaction/<code>')
@@ -147,7 +154,14 @@ def api_transaction(code):
         data = df[available].to_dict("records")
         return format_response(data)
     except Exception as e:
-        return format_response(None, False, str(e))
+        msg = str(e)
+        if "unpack" in msg or "通达信" in msg or "mootdx" in msg.lower():
+            msg = (
+                "逐笔成交暂不可用：无法连接通达信行情服务器。"
+                "若在 Docker 中运行，请设置 MOOTDX_SERVER=119.147.212.81:7709 并重启 web 容器；"
+                "非交易时间也可能无数据。"
+            )
+        return format_response(None, False, msg)
 
 
 # ==================== 估值 API ====================
@@ -157,6 +171,7 @@ def api_valuation(code):
     """单股票完整估值"""
     try:
         data = val.full_valuation(code)
+        data["summary"] = val.valuation_summary(data)
         _db_save(db.save_valuation, code, data)
         _log_search(code, "valuation", data)
         return format_response(data)
@@ -234,8 +249,70 @@ def api_signals_northbound():
             "neutral": "中性",
         }
         data['signal_cn'] = signal_map.get(data.get("signal", ""), "未知")
+        data['intraday'] = sig.northbound_intraday()
         _db_save(db.save_northbound, data)
         _log_search("北向资金", "signals", data)
+        return format_response(data)
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/signals/concept/<code>')
+def api_signals_concept(code):
+    """个股概念板块归属（百度股市通）"""
+    try:
+        data = sig.baidu_concept_blocks(code)
+        _log_search(code, "concept", data)
+        return format_response(data)
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/signals/fund_flow/<code>')
+def api_signals_fund_flow(code):
+    """个股资金流向（日级 + 可选分钟级）"""
+    try:
+        from datetime import datetime
+        days = request.args.get('days', 20, type=int)
+        include_realtime = request.args.get('realtime', '0') == '1'
+        history = sig.baidu_fund_flow_history(code, days=days)
+        result = {"history": history}
+        if include_realtime:
+            date_str = datetime.now().strftime("%Y%m%d")
+            result["realtime"] = sig.baidu_fund_flow_realtime(code, date_str)
+        _log_search(code, "fund_flow", {"count": len(history)})
+        return format_response(result)
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/signals/dragon_tiger/<code>')
+def api_signals_dragon_tiger_stock(code):
+    """个股龙虎榜（上榜记录 + 席位 + 机构）"""
+    try:
+        from datetime import datetime
+        look_back = request.args.get('look_back', 30, type=int)
+        trade_date = request.args.get('date', '').strip()
+        if not trade_date:
+            trade_date = datetime.now().strftime("%Y-%m-%d")
+        data = sig.dragon_tiger_board(code, trade_date, look_back=look_back)
+        _log_search(code, "dragon_tiger", data)
+        return format_response(data)
+    except Exception as e:
+        return format_response(None, False, str(e))
+
+
+@app.route('/api/signals/lockup/<code>')
+def api_signals_lockup_stock(code):
+    """个股限售解禁（历史 + 未来90天）"""
+    try:
+        from datetime import datetime
+        forward_days = request.args.get('forward_days', 90, type=int)
+        trade_date = request.args.get('date', '').strip()
+        if not trade_date:
+            trade_date = datetime.now().strftime("%Y-%m-%d")
+        data = sig.lockup_expiry(code, trade_date, forward_days=forward_days)
+        _log_search(code, "lockup", data)
         return format_response(data)
     except Exception as e:
         return format_response(None, False, str(e))

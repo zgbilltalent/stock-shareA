@@ -29,6 +29,10 @@ services:
     environment:
       - FLASK_ENV=production
       - FLASK_DEBUG=0
+      # Docker 内 mootdx 自动选服常失败，显式指定通达信行情源
+      - MOOTDX_SERVER=119.147.212.81:7709
+      - FEIFAN_CACHE_DIR=/app/cache
+      - HOME=/app
       - FEIFAN_DB_HOST=mysql
       - FEIFAN_DB_PORT=3306
       - FEIFAN_DB_USER=root

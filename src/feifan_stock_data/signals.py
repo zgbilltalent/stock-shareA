@@ -12,6 +12,7 @@
 - akshare 行业: 行业横向对比
 """
 
+import os
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -42,8 +43,25 @@ BAIDU_PAE_HEADERS = {
     "Referer": "https://gushitong.baidu.com/",
 }
 
-# 缓存路径
-CACHE_DIR = Path.home() / ".tradingagents" / "cache"
+def _cache_dir() -> Path:
+    """
+    可写缓存目录。
+    Docker 非 root 用户下 Path.home() 常为 /，无法创建 /.tradingagents。
+    优先 FEIFAN_CACHE_DIR，其次 /app/cache（compose 已挂载），最后用户目录。
+    """
+    env = os.environ.get("FEIFAN_CACHE_DIR", "").strip()
+    if env:
+        return Path(env)
+
+    app_cache = Path("/app/cache")
+    try:
+        app_cache.mkdir(parents=True, exist_ok=True)
+        if os.access(app_cache, os.W_OK):
+            return app_cache
+    except OSError:
+        pass
+
+    return Path(os.path.expanduser("~")) / ".feifan_stock_data" / "cache"
 
 
 # ============ 同花顺热点 ============
@@ -136,11 +154,14 @@ def hsgt_realtime() -> pd.DataFrame:
     })
 
 
-def _northbound_cache_path() -> Path:
-    """北向资金本地 CSV 缓存路径"""
-    p = CACHE_DIR / "northbound_daily.csv"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+def _northbound_cache_path() -> Path | None:
+    """北向资金本地 CSV 缓存路径；无写权限时返回 None"""
+    try:
+        p = _cache_dir() / "northbound_daily.csv"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+    except OSError:
+        return None
 
 
 def _save_northbound_snapshot(date_str: str, hgt: float, sgt: float):
@@ -153,6 +174,9 @@ def _save_northbound_snapshot(date_str: str, hgt: float, sgt: float):
         sgt: 深股通净买入(亿元)
     """
     path = _northbound_cache_path()
+    if path is None:
+        return
+
     rows = {}
 
     if path.exists():
@@ -180,10 +204,13 @@ def _load_northbound_history(n: int = 20) -> pd.DataFrame:
         DataFrame，列: date, hgt, sgt
     """
     path = _northbound_cache_path()
-    if not path.exists():
+    if path is None or not path.exists():
         return pd.DataFrame()
-    df = pd.read_csv(path)
-    return df.tail(n)
+    try:
+        df = pd.read_csv(path)
+        return df.tail(n)
+    except OSError:
+        return pd.DataFrame()
 
 
 # ============ 百度股市通 ============
@@ -568,6 +595,42 @@ def lockup_expiry(
     return {"history": history, "upcoming": upcoming}
 
 
+def unlock_calendar(trade_date: str = None, limit: int = 50) -> pd.DataFrame:
+    """
+    全市场限售解禁日历（当日待解禁列表）
+
+    Args:
+        trade_date: 日期 "YYYY-MM-DD"，默认今天
+        limit: 最多返回条数
+
+    Returns:
+        DataFrame，列含: 股票代码, 股票简称, 解禁日期, 解禁数量, 占流通股比例, 限售股类型 等
+    """
+    if trade_date is None:
+        trade_date = date.today().strftime("%Y-%m-%d")
+    today_str = trade_date.replace("-", "")
+
+    try:
+        df = ak.stock_restricted_release_detail_em(date=today_str)
+    except Exception:
+        return pd.DataFrame()
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    rename = {
+        "解禁数量": "解禁数量_万股",
+        "解禁市值": "解禁市值_万元",
+    }
+    for old, new in rename.items():
+        if old in df.columns and new not in df.columns:
+            df = df.rename(columns={old: new})
+
+    sort_col = "解禁日期" if "解禁日期" in df.columns else df.columns[0]
+    df = df.sort_values(sort_col, ascending=True)
+    return df.head(limit)
+
+
 # ============ 行业横向对比 ============
 
 
@@ -663,6 +726,12 @@ def northbound_summary() -> dict:
     sgt = last["sgt_yi"]
     total = hgt + sgt
 
+    # 自动缓存当日收盘数据
+    try:
+        _save_northbound_snapshot(date.today().strftime("%Y-%m-%d"), hgt, sgt)
+    except Exception:
+        pass
+
     if total > 20:
         signal = "bullish"
     elif total < -20:
@@ -670,9 +739,43 @@ def northbound_summary() -> dict:
     else:
         signal = "neutral"
 
+    hist = _load_northbound_history(20)
+    history = []
+    if not hist.empty:
+        for _, row in hist.iterrows():
+            history.append({
+                "date": str(row.get("date", "")),
+                "hgt": float(row.get("hgt", 0) or 0),
+                "sgt": float(row.get("sgt", 0) or 0),
+                "total": float(row.get("hgt", 0) or 0) + float(row.get("sgt", 0) or 0),
+            })
+
     return {
         "hgt_today": hgt,
         "sgt_today": sgt,
         "total": total,
         "signal": signal,
+        "history": history,
     }
+
+
+def northbound_intraday() -> list[dict]:
+    """北向资金当日分钟级流向，供前端绘图"""
+    df = hsgt_realtime()
+    if df.empty:
+        return []
+    rows = []
+    for _, row in df.iterrows():
+        hgt = row.get("hgt_yi")
+        sgt = row.get("sgt_yi")
+        if hgt is None and sgt is None:
+            continue
+        h = float(hgt) if hgt is not None else 0
+        s = float(sgt) if sgt is not None else 0
+        rows.append({
+            "time": str(row.get("time", "")),
+            "hgt_yi": h,
+            "sgt_yi": s,
+            "total_yi": round(h + s, 2),
+        })
+    return rows
